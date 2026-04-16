@@ -186,9 +186,9 @@ export interface PerformanceMonitorConfig {
 /** Konfigurasi default */
 const DEFAULT_CONFIG: Required<PerformanceMonitorConfig> = {
   timerDefaultTimeoutMs: 30_000,
-  maxHistogramSamples: 10_000,
-  leakDetectionIntervalMs: 60_000,
-  maxActiveTimers: 500,
+  maxHistogramSamples: 500,
+  leakDetectionIntervalMs: 300_000,
+  maxActiveTimers: 200,
   verbose: false,
 };
 
@@ -723,8 +723,8 @@ class AlertManager {
     const history = this.counterHistory.get(metricName)!;
     history.push({ value, timestamp: now });
 
-    // Trim history (simpan 1000 entri terakhir)
-    while (history.length > 1000) {
+    // Trim history (simpan 100 entri terakhir)
+    while (history.length > 100) {
       history.shift();
     }
   }
@@ -1458,7 +1458,16 @@ export class PerformanceMonitor {
  * }
  * ```
  */
-export const perfMonitor = PerformanceMonitor.getInstance();
+/** Lazy singleton — only created when first accessed */
+let _perfMonitor: PerformanceMonitor | null = null;
+export const perfMonitor = new Proxy({} as PerformanceMonitor, {
+  get(_target, prop, receiver) {
+    if (!_perfMonitor) {
+      _perfMonitor = PerformanceMonitor.getInstance();
+    }
+    return Reflect.get(_perfMonitor, prop, receiver);
+  },
+});
 
 // =====================================================================
 // CONVENIENCE: Middleware helper

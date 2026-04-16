@@ -2,18 +2,16 @@
 // HEALTH CHECK ENDPOINT
 // GET /api/health
 //
-// Returns a comprehensive system health report including database
-// connectivity, memory usage, and circuit breaker states.
+// Returns a lightweight system health report.
+// Heavy operations (connection pool stats, performance metrics) are
+// skipped unless ?verbose=1 is passed to reduce memory/CPU on every poll.
 // =====================================================================
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { CircuitBreaker } from '@/lib/circuit-breaker';
 import { getDegradationLevel, featureFlags } from '@/lib/graceful-degradation';
 import { memoryGuard } from '@/lib/memory-guard';
-import { getPoolStats } from '@/lib/connection-pool';
-import { isPushConfigured } from '@/lib/push-notification';
-import { perfMonitor } from '@/lib/performance-monitor';
 
 type CheckStatus = 'ok' | 'warning' | 'error';
 type OverallStatus = 'healthy' | 'degraded' | 'unhealthy';
@@ -33,72 +31,41 @@ interface HealthResponse {
       used_mb: number;
       total_mb: number;
       percent: number;
-      heapUsedMB: number;
-      heapTotalMB: number;
-      rssMB: number;
       underPressure: boolean;
     };
-    circuitBreakers: { name: string; state: string; failures: number }[];
-    connectionPool: {
-      transaction: {
-        active: number;
-        idle: number;
-        waiting: number;
-        healthy: boolean;
-      };
-      session: {
-        active: number;
-        idle: number;
-        waiting: number;
-        healthy: boolean;
-      };
+    circuitBreakers?: { name: string; state: string; failures: number }[];
+    connectionPool?: {
+      transaction: { active: number; idle: number; waiting: number; healthy: boolean };
+      session: { active: number; idle: number; waiting: number; healthy: boolean };
     };
-    pushNotifications: {
-      configured: boolean;
-      vapidKeysPresent: boolean;
-    };
-    performance: {
-      timestamp: number;
-      uptimeMs: number;
+    performance?: {
       summary: {
         healthy: boolean;
         issues: number;
         message: string;
-        avgApiResponseMs: number;
-        avgDbQueryMs: number;
-        requestsPerSec: number;
-        errorRate: number;
       };
-      activeAlerts: { metricName: string; type: string; message: string; value: number; severity: string; timestamp: number }[];
+      activeAlerts: number;
     };
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const timestamp = new Date().toISOString();
   const uptime = Math.floor(process.uptime());
+  const verbose = request.nextUrl.searchParams.get('verbose') === '1';
 
-  // Run all checks in parallel
-  const [dbCheck, memoryCheck, cbCheck, poolCheck] = await Promise.all([
+  // Core checks (always run)
+  const [dbCheck, memoryCheck] = await Promise.all([
     checkDatabase(),
     checkMemory(),
-    checkCircuitBreakers(),
-    checkConnectionPool(),
   ]);
 
   // Determine overall status
   let status: OverallStatus = 'healthy';
-  let perfMetrics: any;
-  try {
-    perfMetrics = perfMonitor.getMetrics();
-  } catch (e) {
-    console.error('[Health] perfMonitor.getMetrics failed:', e);
-    perfMetrics = { timestamp: Date.now(), uptimeMs: 0, activeAlerts: [], summary: { healthy: true, issues: 0, message: 'Performance monitor unavailable', avgApiResponseMs: 0, avgDbQueryMs: 0, requestsPerSec: 0, errorRate: 0 } };
-  }
 
   if (dbCheck.status === 'error') {
     status = 'unhealthy';
-  } else if (memoryCheck.status === 'warning' || cbCheck.some((cb) => cb.state === 'open') || !perfMetrics?.summary?.healthy) {
+  } else if (memoryCheck.status === 'warning') {
     status = 'degraded';
   }
 
@@ -117,29 +84,32 @@ export async function GET() {
     checks: {
       database: dbCheck,
       memory: memoryCheck,
-      circuitBreakers: cbCheck,
-      connectionPool: poolCheck,
-      pushNotifications: {
-        configured: isPushConfigured(),
-        vapidKeysPresent: !!(process.env.VAPID_PRIVATE_KEY && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY),
-      },
-      performance: {
-        timestamp: perfMetrics.timestamp,
-        uptimeMs: perfMetrics.uptimeMs,
-        summary: perfMetrics.summary,
-        activeAlerts: perfMetrics.activeAlerts.map(a => ({
-          metricName: a.metricName,
-          type: a.type,
-          message: a.message,
-          value: a.value,
-          severity: a.severity,
-          timestamp: a.timestamp,
-        })),
-      },
     },
   };
 
-  const httpStatus = status === 'unhealthy' ? 503 : status === 'degraded' ? 200 : 200;
+  // Heavy checks only in verbose mode
+  if (verbose) {
+    const [cbCheck, poolCheck, perfCheck] = await Promise.all([
+      checkCircuitBreakers(),
+      checkConnectionPool(),
+      checkPerformance(),
+    ]);
+
+    if (cbCheck.some((cb) => cb.state === 'open')) {
+      status = 'degraded';
+      body.status = status;
+    }
+    if (perfCheck && !perfCheck.summary.healthy) {
+      status = 'degraded';
+      body.status = status;
+    }
+
+    body.checks.circuitBreakers = cbCheck;
+    body.checks.connectionPool = poolCheck;
+    body.checks.performance = perfCheck;
+  }
+
+  const httpStatus = status === 'unhealthy' ? 503 : 200;
 
   return NextResponse.json(body, { status: httpStatus });
 }
@@ -170,9 +140,6 @@ interface MemoryCheck {
   used_mb: number;
   total_mb: number;
   percent: number;
-  heapUsedMB: number;
-  heapTotalMB: number;
-  rssMB: number;
   underPressure: boolean;
 }
 
@@ -183,9 +150,6 @@ function checkMemory(): MemoryCheck {
     used_mb: stats.used,
     total_mb: stats.total,
     percent: stats.percent,
-    heapUsedMB: stats.heapUsedMB,
-    heapTotalMB: stats.heapTotalMB,
-    rssMB: stats.rss,
     underPressure: memoryGuard.isUnderPressure(),
   };
 }
@@ -196,6 +160,7 @@ function checkCircuitBreakers(): { name: string; state: string; failures: number
 
 async function checkConnectionPool() {
   try {
+    const { getPoolStats } = await import('@/lib/connection-pool');
     const stats = await getPoolStats();
     return {
       transaction: {
@@ -215,6 +180,26 @@ async function checkConnectionPool() {
     return {
       transaction: { active: 0, idle: 0, waiting: 0, healthy: false },
       session: { active: 0, idle: 0, waiting: 0, healthy: false },
+    };
+  }
+}
+
+async function checkPerformance() {
+  try {
+    const { perfMonitor } = await import('@/lib/performance-monitor');
+    const metrics = perfMonitor.getMetrics();
+    return {
+      summary: {
+        healthy: metrics.summary.healthy,
+        issues: metrics.summary.issues,
+        message: metrics.summary.message,
+      },
+      activeAlerts: metrics.activeAlerts.length,
+    };
+  } catch {
+    return {
+      summary: { healthy: true, issues: 0, message: 'Performance monitor unavailable' },
+      activeAlerts: 0,
     };
   }
 }

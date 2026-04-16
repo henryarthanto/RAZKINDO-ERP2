@@ -5,39 +5,57 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
-  // Allow all z.ai preview origins including HTTP (preview panel uses HTTP)
+
+  // Tree-shake heavy libraries to reduce bundle size
+  experimental: {
+    optimizePackageImports: [
+      'lucide-react',
+      'recharts',
+      'date-fns',
+      '@tanstack/react-table',
+      '@dnd-kit/core',
+      '@dnd-kit/sortable',
+      'framer-motion',
+    ],
+  },
+
+  webpack: (config, { dev, isServer }) => {
+    if (dev) {
+      // Disable source maps in dev to save memory
+      config.devtool = false;
+      // Limit parallel compilation
+      config.parallelism = 1;
+    }
+
+    if (isServer) {
+      if (!config.externals) config.externals = [];
+      if (Array.isArray(config.externals)) {
+        config.externals.push('sharp', 'pg-native');
+      }
+    }
+
+    return config;
+  },
+
   allowedDevOrigins: [
-    // Wildcard for all future sessions
     "https://*.space.z.ai",
     "http://*.space.z.ai",
-    // Also add common patterns
     "https://space.z.ai",
     "http://space.z.ai",
     "https://z.ai",
     "http://z.ai",
   ],
   async rewrites() {
-    return [
-      {
-        source: '/favicon.ico',
-        destination: '/api/pwa/icon?size=32',
-      },
-    ];
+    return [{ source: '/favicon.ico', destination: '/api/pwa/icon?size=32' }];
   },
   async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          // DO NOT set X-Frame-Options or frame-ancestors CSP —
-          // the preview panel embeds this app in an iframe.
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'X-XSS-Protection', value: '1; mode=block' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-        ],
-      },
-    ];
+    return [{
+      source: '/(.*)',
+      headers: [
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      ],
+    }];
   },
 };
 

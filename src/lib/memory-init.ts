@@ -3,13 +3,14 @@
 //
 // Auto-starts memory monitoring when imported on the server.
 // Designed to be imported from instrumentation.ts (runs once at server start).
+// Check interval reduced to 5 minutes to minimize overhead.
 // =====================================================================
 
 import { memoryGuard } from './memory-guard';
 
 if (typeof window === 'undefined') {
-  // Check every 2 minutes — less aggressive than 30s
-  memoryGuard.start(120_000);
+  // Check every 5 minutes — less aggressive than 2min
+  memoryGuard.start(300_000);
 
   // Register default cleanup callback for critical memory pressure
   memoryGuard.onCritical(() => {

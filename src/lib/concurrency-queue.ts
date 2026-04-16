@@ -163,8 +163,8 @@ const DEFAULT_CONFIG: Required<QueueConfig> = {
   maxWaitTimeMs: 30_000,
   maxExecutionTimeMs: 60_000,
   maxRetries: 2,
-  statsWindowSize: 1_000,
-  cleanupIntervalMs: 60_000,
+  statsWindowSize: 200,
+  cleanupIntervalMs: 120_000,
   lockStaleThresholdMs: 120_000,
   verbose: false,
 };
@@ -571,6 +571,12 @@ class TransactionQueueManager {
   private readonly completedOps: CompletedOperation[] = [];
   private totalRejected = 0;
 
+  /** Completion callbacks for waiting promises (replaces polling) */
+  private readonly completionCallbacks = new Map<string, {
+    resolve: (result: unknown) => void;
+    reject: (error: Error) => void;
+  }>();
+
   /** Timer untuk proses antrian */
   private processingTimer: ReturnType<typeof setImmediate> | null = null;
 
@@ -770,24 +776,26 @@ class TransactionQueueManager {
 
   /**
    * Tunggu hingga operasi selesai diproses.
+   * Uses Promise resolution instead of polling for efficiency.
    */
   private waitForCompletion(operation: QueuedOperation): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      const checkInterval = setInterval(() => {
-        const completed = this.completedOps.find(
-          (c) => c.id === operation.id
-        );
-        if (completed) {
-          clearInterval(checkInterval);
-          if (completed.success) {
-            resolve(completed.result);
-          } else {
-            reject(new Error(completed.error ?? 'Operasi gagal'));
-          }
-        }
-      }, 10);
+      const timeout = setTimeout(() => {
+        this.completionCallbacks.delete(operation.id);
+        reject(new Error(`Operation "${operation.id}" timed out waiting for completion`));
+      }, this.config.maxExecutionTimeMs + this.config.maxWaitTimeMs);
+      if (timeout.unref) timeout.unref();
 
-      if (checkInterval.unref) checkInterval.unref();
+      this.completionCallbacks.set(operation.id, {
+        resolve: (result: unknown) => {
+          clearTimeout(timeout);
+          resolve(result);
+        },
+        reject: (error: Error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
     });
   }
 
@@ -1016,6 +1024,17 @@ class TransactionQueueManager {
 
     this.completedOps.push(completed);
 
+    // Resolve the waiting promise (replaces polling)
+    const callback = this.completionCallbacks.get(operation.id);
+    if (callback) {
+      this.completionCallbacks.delete(operation.id);
+      if (success) {
+        callback.resolve(result);
+      } else {
+        callback.reject(new Error(error ?? 'Operasi gagal'));
+      }
+    }
+
     // Trim statistik ke ukuran window
     while (
       this.completedOps.length >
@@ -1218,8 +1237,8 @@ export class ConcurrencyManager {
       () => (this.txQueue as any).processingOps
     );
 
-    // Mulai deteksi deadlock periodik
-    this.deadlockDetector.start(5_000);
+    // Mulai deteksi deadlock periodik (every 60s instead of 5s to reduce CPU/memory)
+    this.deadlockDetector.start(60_000);
 
     // Mulai pembersihan periodik
     this.startCleanup();
@@ -1306,9 +1325,18 @@ export class ConcurrencyManager {
 
 /**
  * Instance singleton ConcurrencyManager.
+ * Lazy-initialized to avoid heavy startup memory allocation.
  * Gunakan ini di semua API route untuk mengakses sistem konkurensi.
  */
-export const concurrencyManager = ConcurrencyManager.getInstance();
+let _concurrencyManager: ConcurrencyManager | null = null;
+export const concurrencyManager = new Proxy({} as ConcurrencyManager, {
+  get(_target, prop, receiver) {
+    if (!_concurrencyManager) {
+      _concurrencyManager = ConcurrencyManager.getInstance();
+    }
+    return Reflect.get(_concurrencyManager, prop, receiver);
+  },
+});
 
 // =====================================================================
 // CONVENIENCE: Shorthand untuk operasi yang sering digunakan

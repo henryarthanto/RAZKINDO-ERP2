@@ -34,7 +34,7 @@ export interface BatchOptimizerConfig {
 const DEFAULT_CONFIG: Required<BatchOptimizerConfig> = {
   chunkSize: 450,
   cacheTtlMs: 30_000,
-  maxCacheSize: 500,
+  maxCacheSize: 100,
   verbose: false,
 };
 
@@ -802,22 +802,18 @@ export class BatchOptimizer {
 // =====================================================================
 
 /**
- * Instance singleton BatchOptimizer.
- * Gunakan ini di semua API route untuk optimasi query batch.
- *
- * Contoh:
- * ```ts
- * import { batchOptimizer } from '@/lib/batch-optimizer';
- *
- * // Dalam API route handler
- * const productIds = transactionItems.map(i => i.productId);
- * const { data: products } = await batchOptimizer.batchGetProducts(productIds);
- *
- * // Setelah write, invalidate cache
- * await batchOptimizer.invalidateCache('products');
- * ```
+ * Lazy singleton BatchOptimizer.
+ * Only created when first accessed to reduce startup memory.
  */
-export const batchOptimizer = new BatchOptimizer();
+let _batchOptimizer: BatchOptimizer | null = null;
+export const batchOptimizer = new Proxy({} as BatchOptimizer, {
+  get(_target, prop, receiver) {
+    if (!_batchOptimizer) {
+      _batchOptimizer = new BatchOptimizer();
+    }
+    return Reflect.get(_batchOptimizer, prop, receiver);
+  },
+});
 
 // =====================================================================
 // CONVENIENCE: BatchRequestScope
