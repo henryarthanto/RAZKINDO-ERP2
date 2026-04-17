@@ -76,6 +76,9 @@ export async function PATCH(request: NextRequest) {
         referenceNo: referenceNo || null, notes: `Pembayaran saat pengiriman oleh ${courier.name}`,
         hppPortion, profitPortion,
       });
+      // Fix: payments table uses camelCase column 'paymentMethod', not snake_case 'payment_method'
+      payData.paymentMethod = payData.payment_method;
+      delete payData.payment_method;
       const { data: payment, error: payError } = await db.from('payments').insert(payData).select().single();
       if (payError) throw payError;
       paymentRecord = payment;

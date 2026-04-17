@@ -849,7 +849,7 @@ export async function POST(request: NextRequest) {
                 transaction_id: transactionId,
                 received_by_id: authUserId,
                 amount: paidAmount,
-                payment_method: data.paymentMethod,
+                paymentMethod: data.paymentMethod,
                 cash_box_id: targetCashBoxId,
                 bank_account_id: targetBankAccountId,
                 hpp_portion: hppPaid,
