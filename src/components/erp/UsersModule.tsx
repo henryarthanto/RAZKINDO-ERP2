@@ -879,6 +879,7 @@ function EditUserForm({
   onCancel: () => void;
   isLoading: boolean;
 }) {
+  const isCustomRole = !!user.customRoleId;
   const [name, setName] = useState(user.name);
   const [phone, setPhone] = useState(user.phone || '');
   const [role, setRole] = useState(user.role);
@@ -906,10 +907,13 @@ function EditUserForm({
     const data: any = {
       name: name.trim(),
       phone: phone.trim() || null,
-      role,
       status,
       unitIds,
     };
+    // Only send role for standard (ERP) users — custom role users keep their existing role
+    if (!isCustomRole) {
+      data.role = role;
+    }
     if (password && password.length >= 6) {
       data.password = password;
     } else if (password && password.length > 0 && password.length < 6) {
@@ -943,16 +947,25 @@ function EditUserForm({
       </div>
       <div>
         <Label>Role</Label>
-        <Select value={role} onValueChange={setRole}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ROLES.map(r => (
-              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {isCustomRole ? (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300">
+              {user.customRole?.name || user.role}
+            </Badge>
+            <span className="text-xs text-muted-foreground">(Role karyawan non-ERP, tidak bisa diubah di sini)</span>
+          </div>
+        ) : (
+          <Select value={role} onValueChange={setRole}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ROLES.map(r => (
+                <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
       <div>
         <Label>Status</Label>

@@ -296,6 +296,13 @@ export async function POST(request: NextRequest) {
       await upsertSetting('pool_profit_paid_balance', JSON.stringify(0));
       await upsertSetting('pool_investor_fund', JSON.stringify(0));
 
+      // Verify the values were actually saved
+      const { data: verifySettings } = await db
+        .from('settings')
+        .select('key, value')
+        .in('key', ['pool_hpp_paid_balance', 'pool_profit_paid_balance', 'pool_investor_fund']);
+      console.log('[POOL RESET] Verification after reset:', JSON.stringify(verifySettings));
+
       try {
         createLog(db, {
           type: 'audit',

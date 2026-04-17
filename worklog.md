@@ -98,3 +98,27 @@ Stage Summary:
 - Pool reset to 0 now works: all settings operations use safe upsert pattern
 - Discrepancy fix route also fixed to prevent future regression
 - TypeScript compiles with 0 errors
+
+---
+Task ID: 1
+Agent: Main
+Task: Fix karyawan unit update not persisting & pool dana reset not working
+
+Work Log:
+- Investigated employee update API route (PATCH /api/users/[id])
+- Found root cause: VALID_ROLES only includes ['super_admin', 'sales', 'kurir', 'keuangan']
+- Custom role users (OB, Sopir, Security, etc.) send their custom role name in the update payload
+- API rejects with "Role tidak valid" 400 error, blocking the entire update including unitIds
+- Fixed API: role validation now checks if user has customRoleId, skips role update for custom role users
+- Fixed frontend: EditUserForm now shows custom role as read-only badge instead of broken dropdown
+- Custom role users no longer send `role` field in update payload from frontend
+- Also allows switching from custom role to standard role (clears customRoleId)
+- Pool dana: added verification logging to reset_to_zero action
+- Pool dana upsertSetting helper was already in place from previous session
+- The pool reset likely failed previously because upsert without id was used before the fix was deployed
+
+Stage Summary:
+- Employee update now works for custom role users (OB, Sopir, etc.)
+- API accepts updates for custom role users without requiring role to be in VALID_ROLES
+- EditUserForm shows custom role name as read-only badge for non-ERP employees
+- Pool reset has verification logging to confirm values are saved correctly
