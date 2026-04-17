@@ -868,13 +868,18 @@ export default function FinanceModule() {
             </div>
           </div>
 
-          {/* Visual bar — 3 segments */}
+          {/* Visual bar — 3 segments + courier pending */}
           <div className="mt-3">
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1">
               <span className="text-purple-600">HPP</span>
               <span className="text-teal-600">Profit</span>
               <div className="flex-1" />
               <span className="text-amber-600">Lain-lain</span>
+              {fundBalances.totalWithCouriers > 0 && (
+                <>
+                  <span className="text-orange-600 ml-1">| Kurir</span>
+                </>
+              )}
             </div>
             <div className="h-2.5 rounded-full overflow-hidden bg-muted flex">
               <div
@@ -892,7 +897,7 @@ export default function FinanceModule() {
             </div>
           </div>
 
-          {/* Reconciliation Info: Pool vs Physical vs Actual Payments + Courier Pending */}
+          {/* Reconciliation Info: Pool vs Ground Truth + Courier Pending */}
           <div className={`mt-3 p-2.5 rounded-lg text-xs space-y-1.5 ${
             fundBalances.poolDiff !== 0 || fundBalances.hppDiff !== 0 || fundBalances.profitDiff !== 0
               ? 'bg-red-50 border border-red-200 dark:bg-red-950/40 dark:border-red-800'
@@ -941,6 +946,11 @@ export default function FinanceModule() {
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Data Tersinkronisasi — Pool ({formatCurrency(fundBalances.totalPool)}) = Dana Fisik ({formatCurrency(fundBalances.totalFunds)})
                 {fundBalances.investorFund > 0 ? ` + Dana Lain-lain (${formatCurrency(fundBalances.investorFund)})` : ''}
+                {fundBalances.totalWithCouriers > 0 && (
+                  <span className="text-orange-600 dark:text-orange-400 ml-2">
+                    📦 +Kurir: {formatCurrency(fundBalances.totalWithCouriers)}
+                  </span>
+                )}
               </div>
             )}
           </div>
