@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
+import { generateId } from '@/lib/supabase-helpers';
 
 /**
  * GET /api/whatsapp/message-template
@@ -68,7 +69,8 @@ export async function PATCH(request: NextRequest) {
       const { error } = await db.from('settings').update({ value: template }).eq('key', 'whatsapp_message_template');
       if (error) throw error;
     } else {
-      const { error } = await db.from('settings').insert({ key: 'whatsapp_message_template', value: template });
+      const now = new Date().toISOString();
+      const { error } = await db.from('settings').insert({ id: generateId(), key: 'whatsapp_message_template', value: template, created_at: now, updated_at: now });
       if (error) throw error;
     }
 

@@ -100,6 +100,28 @@ Stage Summary:
 - TypeScript compiles with 0 errors
 
 ---
+Task ID: 6
+Agent: Main Agent
+Task: Fix WhatsApp Fonnte integration not working
+
+Work Log:
+- Investigated all Fonnte/WhatsApp code: 27 files spanning lib, API routes, frontend
+- Found 3 bugs:
+  1. Missing /api/whatsapp/test route — caused 404 when testing connection (8 errors in dev.log)
+  2. whatsapp/config PATCH: insert without id — same Supabase REST NOT NULL bug
+  3. whatsapp/message-template PATCH: insert without id — same bug
+- Created /api/whatsapp/test/route.ts — exposes testConnection() from lib
+- Fixed config insert: added id: generateId(), created_at, updated_at
+- Fixed message-template insert: added id: generateId(), created_at, updated_at
+- Core library (whatsapp.ts) is sound — correct Fonnte API calls, timeout handling, token validation
+
+Stage Summary:
+- WhatsApp test connection now works (route exists)
+- First-time WhatsApp config save now works (id generated for new settings rows)
+- Message template first-time save now works
+- TypeScript compiles with 0 errors
+
+---
 Task ID: 1
 Agent: Main
 Task: Fix karyawan unit update not persisting & pool dana reset not working
