@@ -475,9 +475,11 @@ export default function TransactionsModule() {
     ...POLLING_CONFIG
   });
 
+  // Pass unitId to /api/products so SaleForm gets effectiveStock and hasAccess for per_unit products
+  const productsUnitId = user?.role === 'super_admin' ? selectedUnitId || '' : user?.unitId || '';
   const { data: productsData } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => apiFetch<any>('/api/products'),
+    queryKey: ['products', productsUnitId],
+    queryFn: () => apiFetch<any>(`/api/products${productsUnitId ? `?unitId=${productsUnitId}` : ''}`),
     enabled: showSaleForm,
   });
 

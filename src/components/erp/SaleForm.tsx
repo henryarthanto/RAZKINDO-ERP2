@@ -196,6 +196,13 @@ export function SaleForm({
 
   const filteredProducts = useMemo(() => {
     let list = products;
+    // Filter out per_unit products without access to current unit
+    // (only applies when unitId is set, which means effectiveStock was computed)
+    list = list.filter((p: any) => {
+      // If hasAccess is explicitly false, hide the product (per_unit without unit assignment)
+      if (p.stockType === 'per_unit' && p.hasAccess === false) return false;
+      return true;
+    });
     if (selectedCategory !== 'all') list = list.filter(p => p.category === selectedCategory);
     if (productSearch.trim()) {
       const q = productSearch.toLowerCase();
@@ -251,21 +258,23 @@ export function SaleForm({
   const addToCart = useCallback((product: Product) => {
     // If trackStock is off, allow adding without stock check
     const isTracking = product.trackStock !== false;
-    if (isTracking && product.globalStock <= 0) { toast.error('Stok habis!'); return; }
+    // Use effectiveStock (per-unit) if available, otherwise fall back to globalStock
+    const stock = (product as any).effectiveStock ?? product.globalStock ?? 0;
+    if (isTracking && stock <= 0) { toast.error('Stok habis!'); return; }
     let success = false;
     setCart(prev => {
       const existing = prev.find(i => i.productId === product.id);
       if (existing) {
         if (isTracking) {
           const existingQtyInSub = existing.qtyUnitType === 'main' ? (existing.qty + 1) * existing.conversionRate : existing.qty + 1;
-          if (existingQtyInSub > product.globalStock) { toast.error(`Stok tidak cukup! Tersedia: ${product.globalStock}`); return prev; }
+          if (existingQtyInSub > stock) { toast.error(`Stok tidak cukup! Tersedia: ${stock}`); return prev; }
         }
         success = true;
         return prev.map(i => i.productId === product.id ? { ...i, qty: i.qty + 1 } : i);
       }
       const hasSubUnit = product.subUnit && product.conversionRate > 1;
       const initialQtyInSub = hasSubUnit ? 1 : 1;
-      if (isTracking && initialQtyInSub > product.globalStock) { toast.error(`Stok tidak cukup! Tersedia: ${product.globalStock}`); return prev; }
+      if (isTracking && initialQtyInSub > stock) { toast.error(`Stok tidak cukup! Tersedia: ${stock}`); return prev; }
       success = true;
       return [...prev, {
         productId: product.id, productName: product.name, productImageUrl: product.imageUrl || undefined, qty: 1,
@@ -275,7 +284,7 @@ export function SaleForm({
         conversionRate: product.conversionRate || 1,
         mainUnit: product.unit || 'pcs', subUnit: product.subUnit || '',
         sellPricePerSubUnit: product.sellPricePerSubUnit || 0,
-        globalStock: product.globalStock, trackStock: product.trackStock !== false, category: product.category ?? null
+        globalStock: stock, trackStock: product.trackStock !== false, category: product.category ?? null
       }];
     });
     if (success) toast.success(`${product.name} ditambahkan`);

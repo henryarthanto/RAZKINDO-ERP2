@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/supabase';
+import { db, prisma } from '@/lib/supabase';
 import { toCamelCase, createLog, createEvent, generateId, generateInvoiceNo } from '@/lib/supabase-helpers';
 import { getWhatsAppConfig, sendMessage, renderMessageTemplate, disableWhatsAppOnInvalidToken } from '@/lib/whatsapp';
 import { verifyAndGetAuthUser } from '@/lib/token';
@@ -283,40 +283,94 @@ export async function POST(request: NextRequest) {
       // Skip customer/courier/supplier/products if IDs are empty — use resolved placeholder
       cleanCustomerId
         ? db.from('customers').select('id').eq('id', cleanCustomerId).maybeSingle()
-        : Promise.resolve({ data: null }),
+        : Promise.resolve({ data: null, error: null }),
       cleanCourierId
         ? db.from('users').select('id').eq('id', cleanCourierId).maybeSingle()
-        : Promise.resolve({ data: null }),
+        : Promise.resolve({ data: null, error: null }),
       cleanSupplierId
         ? db.from('suppliers').select('id').eq('id', cleanSupplierId).maybeSingle()
-        : Promise.resolve({ data: null }),
+        : Promise.resolve({ data: null, error: null }),
       db.from('products').select(PRODUCT_FINANCIAL_SELECT).in('id', productIds),
     ]);
 
     const [unitRow, customerRow, courierRow, supplierRow, productsRow] = fkChecks;
 
-    // Build product lookup map (server-side source of truth for HPP, conversion, etc.)
-    const productMap = new Map<string, SmartProduct>();
-    for (const p of (productsRow.data || [])) {
-      productMap.set(p.id, toCamelCase(p) as SmartProduct);
+    // Check for Supabase REST API errors on all FK checks
+    if (unitRow.error) {
+      console.error('[TRANSACTION] Unit query error:', unitRow.error);
+      return NextResponse.json({ error: `Gagal memverifikasi unit: ${unitRow.error.message}` }, { status: 500 });
     }
     if (!unitRow.data) {
       return NextResponse.json({ error: 'Unit/Cabang tidak ditemukan' }, { status: 400 });
     }
+    if (cleanCustomerId && customerRow.error) {
+      console.error('[TRANSACTION] Customer query error:', customerRow.error);
+      return NextResponse.json({ error: `Gagal memverifikasi pelanggan: ${customerRow.error.message}` }, { status: 500 });
+    }
     if (cleanCustomerId && !customerRow.data) {
       return NextResponse.json({ error: 'Pelanggan tidak ditemukan' }, { status: 400 });
+    }
+    if (cleanCourierId && courierRow.error) {
+      console.error('[TRANSACTION] Courier query error:', courierRow.error);
+      return NextResponse.json({ error: `Gagal memverifikasi kurir: ${courierRow.error.message}` }, { status: 500 });
     }
     if (cleanCourierId && !courierRow.data) {
       return NextResponse.json({ error: 'Kurir tidak ditemukan' }, { status: 400 });
     }
+    if (cleanSupplierId && supplierRow.error) {
+      console.error('[TRANSACTION] Supplier query error:', supplierRow.error);
+      return NextResponse.json({ error: `Gagal memverifikasi supplier: ${supplierRow.error.message}` }, { status: 500 });
+    }
     if (cleanSupplierId && !supplierRow.data) {
       return NextResponse.json({ error: 'Supplier tidak ditemukan' }, { status: 400 });
     }
-    const products = productsRow.data;
+
+    // Build product lookup map (server-side source of truth for HPP, conversion, etc.)
+    // If Supabase REST API fails, fall back to Prisma direct query
+    let products: any[] | null = productsRow.data;
+    if (productsRow.error) {
+      console.error('[TRANSACTION] Products REST query error, falling back to Prisma:', productsRow.error);
+      try {
+        const prismaProducts = await prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: {
+            id: true, avgHpp: true, purchasePrice: true, conversionRate: true,
+            trackStock: true, stockType: true, unit: true, subUnit: true,
+            sellPricePerSubUnit: true, sellingPrice: true, name: true,
+          },
+        });
+        // Convert Prisma camelCase to snake_case for consistency with Supabase results
+        products = prismaProducts.map((p: any) => ({
+          id: p.id, avg_hpp: p.avgHpp, purchase_price: p.purchasePrice,
+          conversion_rate: p.conversionRate, track_stock: p.trackStock,
+          stock_type: p.stockType, unit: p.unit, sub_unit: p.subUnit,
+          sell_price_per_sub_unit: p.sellPricePerSubUnit, selling_price: p.sellingPrice,
+          name: p.name,
+        }));
+      } catch (prismaError) {
+        console.error('[TRANSACTION] Prisma product fallback also failed:', prismaError);
+        return NextResponse.json({ error: `Gagal memverifikasi produk: ${productsRow.error.message}` }, { status: 500 });
+      }
+    }
+
+    const productMap = new Map<string, SmartProduct>();
+    for (const p of (products || [])) {
+      productMap.set(p.id, toCamelCase(p) as SmartProduct);
+    }
+
     if (!products || products.length !== productIds.length) {
       const foundIds = new Set((products || []).map((p: any) => p.id));
       const missingIds = productIds.filter(id => !foundIds.has(id));
-      return NextResponse.json({ error: `Beberapa produk tidak ditemukan: ${missingIds.join(', ')}` }, { status: 400 });
+      // Try to find product names from client-sent items for a better error message
+      const missingNames = missingIds.map(id => {
+        const clientItem = items.find((i: any) => i.productId === id);
+        return clientItem?.productName || id;
+      });
+      console.error(`[TRANSACTION] Missing products: ${missingIds.join(', ')}`);
+      return NextResponse.json({
+        error: `Beberapa produk tidak ditemukan: ${missingNames.join(', ')}`,
+        missingIds,
+      }, { status: 400 });
     }
 
     // ═══════════════════════════════════════════════════════════════════

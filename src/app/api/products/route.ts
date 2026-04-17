@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/supabase';
+import { db, prisma } from '@/lib/supabase';
 import { rowsToCamelCase, toCamelCase, toSnakeCase, createLog, createEvent, generateId } from '@/lib/supabase-helpers';
 import { verifyAndGetAuthUser, verifyAuthUser } from '@/lib/token';
 import { wsStockUpdate } from '@/lib/ws-dispatch';
@@ -21,18 +21,81 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: queryValidation.error }, { status: 400 });
     }
     const unitId = searchParams.get('unitId');
+    const search = searchParams.get('search') || searchParams.get('q') || '';
+    const category = searchParams.get('category') || '';
+    const includeInactive = searchParams.get('includeInactive') === 'true';
 
-    const { data: products } = await db
-      .from('products')
-      .select(`
-        *,
-        unit_products:unit_products(*, unit:units(*))
-      `)
-      .eq('is_active', true)
-      .order('name', { ascending: true })
-      .limit(1000);
+    // Build Supabase query with optional filters
+    // Use paginated fetch (batch 1000) to avoid silent truncation — Supabase caps at 1000 rows per request
+    // When search or category filter is provided, 1000 rows is usually enough,
+    // but when loading all products we paginate to get everything.
+    const BATCH_SIZE = 1000;
+    let allProductsCamel: any[] = [];
 
-    const productsCamel = rowsToCamelCase(products || []);
+    // Only filter by is_active if not explicitly requesting inactive products
+    // (includeInactive is only allowed for admin/finance)
+    const filterActive = !includeInactive || (!isAdmin && !isFinance);
+
+    // Server-side search filter
+    const q = search.trim();
+    // Server-side category filter
+    const catFilter = category && category !== 'all' ? category : '';
+
+    let page = 0;
+    while (true) {
+      let query = db
+        .from('products')
+        .select(`
+          *,
+          unit_products:unit_products(*, unit:units(*))
+        `)
+        .order('name', { ascending: true })
+        .range(page * BATCH_SIZE, (page + 1) * BATCH_SIZE - 1);
+
+      if (filterActive) query = query.eq('is_active', true);
+      if (q) query = query.or(`name.ilike.%${q}%,sku.ilike.%${q}%`);
+      if (catFilter) query = query.eq('category', catFilter);
+
+      const { data: batch, error: productsError } = await query;
+
+      if (productsError) {
+        console.error('[PRODUCTS] REST API query error:', productsError);
+        // Fallback to Prisma if REST API fails
+        try {
+          const prismaWhere: any = {};
+          if (filterActive) prismaWhere.isActive = true;
+          if (q) {
+            prismaWhere.OR = [
+              { name: { contains: q, mode: 'insensitive' } },
+              { sku: { contains: q, mode: 'insensitive' } },
+            ];
+          }
+          if (catFilter) prismaWhere.category = catFilter;
+          const prismaProducts = await prisma.product.findMany({
+            where: prismaWhere,
+            orderBy: { name: 'asc' },
+            include: { unitProducts: { include: { unit: true } } },
+          });
+          const productsCamel = rowsToCamelCase(prismaProducts as any);
+          return NextResponse.json({ products: productsCamel });
+        } catch (prismaError) {
+          console.error('[PRODUCTS] Prisma fallback also failed:', prismaError);
+          return NextResponse.json({ error: 'Gagal memuat produk' }, { status: 500 });
+        }
+      }
+
+      if (!batch || batch.length === 0) break;
+      allProductsCamel.push(...rowsToCamelCase(batch));
+      if (batch.length < BATCH_SIZE) break;
+      page++;
+      // Safety: stop after 10 batches (10,000 products) to prevent infinite loops
+      if (page >= 10) {
+        console.warn('[PRODUCTS] Reached 10,000 product limit, some products may be missing');
+        break;
+      }
+    }
+
+    const productsCamel = allProductsCamel;
 
     // If unitId filter is provided, enrich products with per-unit stock info
     let enrichedProducts = productsCamel;

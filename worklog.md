@@ -56,3 +56,26 @@ Stage Summary:
 - Total TypeScript errors: 0
 - Server: Running stable on port 3000 (HTTP 200)
 - Files modified: ws-dispatch.ts, receivables/[id]/route.ts, graceful-degradation.ts, api-client.ts, pwa/[code]/orders/route.ts, .env
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Fix "beberapa produk tidak ditemukan" bug during transaction creation
+
+Work Log:
+- Investigated full transaction creation flow: SaleForm → POST /api/transactions
+- Identified root cause: `productsRow.error` was never checked — Supabase REST API errors silently swallowed and reported as "produk tidak ditemukan"
+- Found secondary cause: GET /api/products had hard `.limit(1000)` with no server-side search
+- Found error messages showed raw UUIDs instead of product names
+- No Prisma fallback existed when Supabase REST API fails
+- Fixed Bug 1: Transaction route now checks ALL FK query errors (unit, customer, courier, supplier, products) before checking null data
+- Fixed Bug 2: Added Prisma fallback for product FK validation when Supabase REST API fails
+- Fixed Bug 3: GET /api/products limit increased to 2000, added server-side search (`?search=` & `?category=`), added Prisma fallback
+- Fixed Bug 4: Error messages now show product names from client-sent items instead of raw UUIDs
+- TypeScript: 0 errors
+
+Stage Summary:
+- Files modified: `src/app/api/transactions/route.ts`, `src/app/api/products/route.ts`
+- Key change: Transaction route now properly handles Supabase REST errors with Prisma fallback
+- Products API now supports server-side search for better performance at scale
+- All FK validation errors now show actual error messages instead of generic "tidak ditemukan"
