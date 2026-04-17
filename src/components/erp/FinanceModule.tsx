@@ -1026,8 +1026,10 @@ export default function FinanceModule() {
                       <span className="text-muted-foreground">HPP:</span>
                       <div className="text-right">
                         <span className="font-semibold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.newHpp)}</span>
-                        {syncPreviewData.changes?.some((c: any) => c.field === 'HPP Terbayar') && (
-                          <ArrowDownLeft className="w-3 h-3 text-red-500 inline ml-1" />
+                        {syncPreviewData.hppDelta !== 0 && (
+                          syncPreviewData.hppDelta > 0
+                            ? <ArrowDownLeft className="w-3 h-3 text-green-500 inline ml-1" />
+                            : <ArrowUpRight className="w-3 h-3 text-red-500 inline ml-1" />
                         )}
                       </div>
                     </div>
@@ -1035,8 +1037,10 @@ export default function FinanceModule() {
                       <span className="text-muted-foreground">Profit:</span>
                       <div className="text-right">
                         <span className="font-semibold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.newProfit)}</span>
-                        {syncPreviewData.changes?.some((c: any) => c.field === 'Profit Terbayar') && (
-                          <ArrowDownLeft className="w-3 h-3 text-red-500 inline ml-1" />
+                        {syncPreviewData.profitDelta !== 0 && (
+                          syncPreviewData.profitDelta > 0
+                            ? <ArrowDownLeft className="w-3 h-3 text-green-500 inline ml-1" />
+                            : <ArrowUpRight className="w-3 h-3 text-red-500 inline ml-1" />
                         )}
                       </div>
                     </div>
@@ -1052,32 +1056,50 @@ export default function FinanceModule() {
                 </div>
               </div>
 
-              {/* Breakdown: deposited vs courier */}
+              {/* Breakdown: deposited vs handover vs courier */}
               <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 text-xs space-y-2">
                 <p className="font-semibold text-blue-700 dark:text-blue-300">
-                  📊 Rincian Sumber Data
+                  📊 Rincian Sumber Data (Ground Truth)
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
-                    <p className="text-[10px] text-muted-foreground">Terdeposit ke Brankas/Bank</p>
-                    <p className="font-semibold">HPP: {formatCurrency(syncPreviewData.newHpp)}</p>
-                    <p className="font-semibold">Profit: {formatCurrency(syncPreviewData.newProfit)}</p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      ({syncPreviewData.brankasBankPaymentsCount || 0} dari {syncPreviewData.totalPaymentsCount || 0} pembayaran)
-                    </p>
+                    <p className="text-[10px] text-muted-foreground">Langsung ke Brankas/Bank</p>
+                    <p className="font-semibold text-purple-700 dark:text-purple-300">HPP: {formatCurrency(syncPreviewData.directHpp || 0)}</p>
+                    <p className="font-semibold text-teal-700 dark:text-teal-300">Profit: {formatCurrency(syncPreviewData.directProfit || 0)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-muted-foreground">Masih di Kurir (Pending)</p>
-                    <p className="font-semibold text-orange-700 dark:text-orange-300">HPP: {formatCurrency(syncPreviewData.courierHppPending || 0)}</p>
-                    <p className="font-semibold text-orange-700 dark:text-orange-300">Profit: {formatCurrency(syncPreviewData.courierProfitPending || 0)}</p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      (akan masuk pool saat kurir setor)
-                    </p>
+                    <p className="text-[10px] text-muted-foreground">Setoran Kurir ke Brankas</p>
+                    <p className="font-semibold text-purple-700 dark:text-purple-300">HPP: {formatCurrency(syncPreviewData.handoverHpp || 0)}</p>
+                    <p className="font-semibold text-teal-700 dark:text-teal-300">Profit: {formatCurrency(syncPreviewData.handoverProfit || 0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">Dipotong untuk Pembelian/Biaya</p>
+                    <p className="font-semibold text-red-600">HPP: -{formatCurrency(syncPreviewData.hppDeducted || 0)}</p>
+                    <p className="font-semibold text-red-600">Profit: -{formatCurrency(syncPreviewData.profitDeducted || 0)}</p>
                   </div>
                 </div>
+                <div className="border-t border-blue-200 dark:border-blue-800 pt-1.5 space-y-1 text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Net HPP (hasil sync):</span>
+                    <span className="font-bold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.newHpp)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Net Profit (hasil sync):</span>
+                    <span className="font-bold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.newProfit)}</span>
+                  </div>
+                </div>
+                {/* Courier pending (not yet in pool) */}
+                {(syncPreviewData.courierHppPending > 0 || syncPreviewData.courierProfitPending > 0) && (
+                  <div className="border-t border-orange-200 dark:border-orange-800 pt-1.5 text-[11px] text-orange-700 dark:text-orange-300">
+                    <p className="font-semibold">📦 Masih di Kurir (belum masuk pool):</p>
+                    <p>HPP: {formatCurrency(syncPreviewData.courierHppPending || 0)}</p>
+                    <p>Profit: {formatCurrency(syncPreviewData.courierProfitPending || 0)}</p>
+                    <p className="text-[10px] text-orange-500">Akan masuk pool saat kurir setor ke brankas</p>
+                  </div>
+                )}
                 {syncPreviewData.totalWithCourier > 0 && (
                   <div className="border-t border-blue-200 dark:border-blue-800 pt-1.5 text-[10px]">
-                    <span className="text-muted-foreground">Total dengan kurir:</span>{' '}
+                    <span className="text-muted-foreground">Total termasuk kurir:</span>{' '}
                     <span className="font-semibold text-blue-700 dark:text-blue-300">{formatCurrency(syncPreviewData.totalWithCourier)}</span>
                   </div>
                 )}

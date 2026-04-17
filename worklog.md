@@ -486,3 +486,30 @@ Stage Summary:
 - Warning visible ke user jika dana kurir gagal ter-update
 - Error log dengan type 'error' dibuat jika unit_id kurir hilang
 - Server confirmed running (HTTP 200) setelah perubahan
+---
+Task ID: pool-dana-sync-fix
+Agent: main
+Task: Fix pool dana sync zeroing out balances — improve logic, add preventive warnings and selisih display
+
+Work Log:
+- Analyzed root cause: `get_payment_pool_sums` RPC only counted payments with `cash_box_id`/`bank_account_id`, missing courier handover amounts that also feed pool balances via `atomicUpdatePoolBalance`
+- When couriers collect cash and deposit (setor) to brankas, pool balances are updated atomically, but sync recalculation from payment sums alone missed these handover contributions
+- Fixed `get_payment_pool_sums` in `src/lib/supabase.ts` to include:
+  - Inflow #1: Direct payments to brankas/bank (existing)
+  - Inflow #2: Courier handovers (setor ke brankas) — `courier_handovers.hpp_portion` and `profit_portion`
+  - Outflow: Finance requests that deducted from pool balances (purchases/expenses/salaries with `fundSource='hpp_paid'/'profit_unpaid'` and `paymentType='pay_now'`)
+- Updated `computeSyncPreview()` in pools API to include breakdown data (directHpp, handoverHpp, hppDeducted, etc.)
+- Updated GET /api/finance/pools to return full breakdown data
+- Updated FinanceModule.tsx UI:
+  - Sync preview now shows 3-column breakdown: Direct to Brankas, Courier Handovers, Deductions
+  - Added courier pending section in sync preview
+  - Added visual "Kurir" indicator in pool composition bar
+  - Added courier info in "Data Tersinkronisasi" success state
+  - Fixed arrow indicators: green for positive delta, red for negative delta
+- Lint passes, server running correctly
+
+Stage Summary:
+- Root cause: sync only counted direct brankas/bank payments, missing handovers → overwrote correct pool balances with 0
+- Fix: RPC now calculates: (direct payments HPP/Profit) + (handover HPP/Profit) - (pool deductions) = ground truth
+- UI now shows transparent breakdown of where pool numbers come from
+- Preventive warnings maintained and improved with selisih details
