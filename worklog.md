@@ -376,3 +376,36 @@ Stage Summary:
 - Admin can toggle canLogin for non-ERP employees via Edit User dialog
 - Admin can set password when enabling login for non-ERP employees
 - TypeScript types now accept custom role strings without type errors
+
+---
+Task ID: session-continue-verification
+Agent: main
+Task: Continue from previous session — verify all fixes, check for remaining bugs
+
+Work Log:
+- Verified dev server running (HTTP 200) with clean logs
+- Ran lint: 0 errors, 0 warnings ✅
+- Ran TypeScript check (tsc --noEmit): 0 errors ✅
+- Ran production build (next build): SUCCESS, all routes compiled ✅
+- Investigated custom role "unauthorized" error — confirmed already fixed in prior session
+  - `users/[id]/route.ts` line 67-83: Custom role users skip VALID_ROLES check
+  - Custom role users have `can_login: false` by design (non-ERP employees)
+  - Login route line 126: `canLogin === false` check prevents non-ERP login
+- Verified courier cash flow end-to-end is correct:
+  - Deliver: `atomic_add_courier_cash` adds to `courier_cash.balance` + `hpp_pending`/`profit_pending` ✅
+  - Handover: `process_courier_handover` RPC deducts courier, credits brankas; JS updates pool + pending ✅
+  - Mark-lunas: Only credits pool for direct brankas/bank; courier cash goes to courier_cash ✅
+  - Cancel: Only reverses pool for brankas/bank payments; reverses courier_cash pending ✅
+  - Pools API: Excludes courier cash from pool sums; includes courierHppPending/courierProfitPending ✅
+- Verified employee unit assignment: All insert operations include `id: generateId()` ✅
+- Verified all RPC definitions: ensure-rpc.ts and deploy-rpcs.ts are consistent ✅
+- Scanned all 30+ insert operations for missing `id: generateId()` — all correct ✅
+- FinanceModule already displays "Dana Kurir" card with courier cash totals ✅
+- CourierDashboard shows "⚠️ Cash belum disetor ke brankas" warning ✅
+- Restarted dev server cleanly after build verification
+
+Stage Summary:
+- All prior fixes verified and working correctly
+- No new bugs found — lint clean, TypeScript clean, build succeeds
+- Courier cash flow is architecturally sound and correctly implemented
+- Server running healthy on port 3000
