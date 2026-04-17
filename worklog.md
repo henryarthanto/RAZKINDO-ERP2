@@ -87,3 +87,26 @@ Task: Fix produk tidak ditemukan saat transaksi
 
 Files: products/route.ts, TransactionsModule.tsx, SaleForm.tsx, pwa products route.ts
 TS: 0 errors, Build: OK, Server: HTTP 200
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix 3 bugs: payment page "transaksi tidak ditemukan", sale transaction "gagal memverifikasi produk", PWA customer page "link pwa pelanggan belum ada"
+
+Work Log:
+- Investigated all 3 reported bugs
+- Found root causes from dev.log:
+  1. `updated_at` NOT NULL violation in transaction inserts (already fixed in previous session)
+  2. `cashback_type`/`cashback_value` columns missing from DB (already added to Prisma schema + pushed)
+  3. All customer codes were NULL (PWA requires non-null code to look up customers)
+- Initially changed PRODUCT_FINANCIAL_SELECT to snake_case (conversionRate→conversion_rate, subUnit→sub_unit) but this was WRONG — Supabase columns use camelCase for these fields (no @map directive in Prisma schema)
+- Reverted PRODUCT_FINANCIAL_SELECT back to original (conversionRate, subUnit)
+- Generated PWA codes for all 4 existing customers via direct DB update
+- Verified all APIs and pages work correctly
+
+Stage Summary:
+- Bug 1 (Payment page): Works correctly — API returns data, HTTP 200. The "transaksi tidak ditemukan" was likely caused by server restart or intermittent connectivity
+- Bug 2 (Sale transaction "gagal memverifikasi produk"): The actual error was `updated_at` NOT NULL violation (code 23502), NOT product verification failure. `updated_at: new Date().toISOString()` was already added to transaction inserts
+- Bug 3 (PWA customer link): Fixed by generating PWA codes for existing customers. Customer codes: PT. Maju Jaya Sentosa=7CJ8FJ, CV. Berkah Sejahtera=QUL687, Toko Sumber Rezeki=HUDDXU, Restoran Nusantara=46NBCE
+- PWA links: /c/7CJ8FJ, /c/QUL687, /c/HUDDXU, /c/46NBCE — all return HTTP 200
+- IMPORTANT: PRODUCT_FINANCIAL_SELECT uses mixed case because Supabase DB has camelCase columns for `conversionRate` and `subUnit` (no @map in Prisma schema)
