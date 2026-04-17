@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       if (testData) {
         await db.from('settings').update({ value: testValue, updated_at: new Date().toISOString() }).eq('key', '_health_check');
       } else {
-        const { generateId } = await import('@/lib/generate-id');
+        const { generateId } = await import('@/lib/supabase-helpers');
         await db.from('settings').insert({ id: generateId(), key: '_health_check', value: testValue, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       }
 

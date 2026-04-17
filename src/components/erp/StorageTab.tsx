@@ -55,7 +55,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Progress } from '@/components/ui/progress';
 import { LoadingFallback } from '@/components/error-boundary';
 
 // Table definitions for data browser
@@ -97,11 +96,11 @@ interface SupabaseHealth {
   timestamp: string;
 }
 
-interface RepairAction {
-  type: 'fix' | 'clean' | 'optimize';
-  description: string;
-  status: 'success' | 'warning' | 'skipped';
-  detail: string;
+interface RepairResult {
+  check: string;
+  status: 'passed' | 'fixed' | 'failed' | 'skipped';
+  message: string;
+  details?: any;
 }
 
 // ---- Helper functions ----
@@ -265,19 +264,18 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
 
   // ---- Auto Repair ----
   const [showRepairResult, setShowRepairResult] = useState(false);
-  const [repairResult, setRepairResult] = useState<{ actions: RepairAction[]; summary: { total: number; success: number; warnings: number; skipped: number } } | null>(null);
+  const [repairResult, setRepairResult] = useState<{ results: RepairResult[]; summary: { total: number; passed: number; fixed: number; failed: number }; message: string } | null>(null);
   const repairMutation = useMutation({
-    mutationFn: () => apiFetch<{ success: boolean; data: any }>('/api/system/auto-repair', { method: 'POST' }),
+    mutationFn: () => apiFetch<{ success: boolean; results?: RepairResult[]; summary?: any; message?: string }>('/api/system/auto-repair', { method: 'POST' }),
     onSuccess: (data) => {
-      if (data.success && data.data) {
-        setRepairResult(data.data);
+      if (data.success) {
+        setRepairResult({ results: data.results || [], summary: data.summary || { total: 0, passed: 0, fixed: 0, failed: 0 }, message: data.message || '' });
         setShowRepairResult(true);
         queryClient.invalidateQueries({ queryKey: ['storage-info'] });
         refetchStorage();
         fetchStats();
         fetchHealth();
-        const s = data.data.summary;
-        toast.success(`Auto-repair selesai! ${s.success} berhasil, ${s.warnings} peringatan`);
+        toast.success(data.message || 'Auto-repair selesai!');
       }
     },
     onError: () => toast.error('Gagal menjalankan auto-repair'),
@@ -718,23 +716,25 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
               <Wrench className="w-5 h-5 text-amber-500" /> Hasil Auto Repair
             </DialogTitle>
             <DialogDescription>
-              {repairResult && `${repairResult.summary.success} berhasil · ${repairResult.summary.warnings} peringatan · ${repairResult.summary.skipped} dilewati`}
+              {repairResult && `${repairResult.summary.passed} OK · ${repairResult.summary.fixed} diperbaiki · ${repairResult.summary.failed} gagal`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            {repairResult?.actions.map((action, i) => (
+            {repairResult?.results.map((action, i) => (
               <div key={i} className={cn(
                 "flex items-start gap-2 p-2.5 rounded-lg border text-sm",
-                action.status === 'success' ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800' :
-                action.status === 'warning' ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800' :
+                action.status === 'passed' ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800' :
+                action.status === 'fixed' ? 'bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800' :
+                action.status === 'failed' ? 'bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800' :
                 'bg-muted/50'
               )}>
-                {action.status === 'success' ? <Check className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> :
-                 action.status === 'warning' ? <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> :
+                {action.status === 'passed' ? <Check className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> :
+                 action.status === 'fixed' ? <Wrench className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" /> :
+                 action.status === 'failed' ? <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" /> :
                  <div className="w-4 h-4 mt-0.5 shrink-0" />}
                 <div>
-                  <p className="font-medium text-xs">{action.description}</p>
-                  <p className="text-xs text-muted-foreground">{action.detail}</p>
+                  <p className="font-medium text-xs">{action.check}</p>
+                  <p className="text-xs text-muted-foreground">{action.message}</p>
                 </div>
               </div>
             ))}
