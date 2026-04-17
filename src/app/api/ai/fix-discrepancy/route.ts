@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Transaksi tidak ditemukan' }, { status: 404 });
     }
 
-    const beforeSnapshot = toCamelCase(currentTx) as any;
+    const beforeSnapshot = currentTx as any; // Keep snake_case for field lookup
 
     // ── Log BEFORE the fix ──
     await createLog(db, {
@@ -217,11 +217,11 @@ export async function POST(request: NextRequest) {
       entity: 'transactions',
       entityId: transactionId,
       payload: JSON.stringify({
-        invoiceNo: beforeSnapshot.invoiceNo,
+        invoiceNo: beforeSnapshot.invoice_no,
         currentValues: fixes.map(f => ({ field: f.field, oldValue: beforeSnapshot[f.field] })),
         reason,
       }),
-      message: `FIX BEFORE: ${beforeSnapshot.invoiceNo} — ${fixes.map(f => `${f.field}: ${beforeSnapshot[f.field]} → ${f.correctValue}`).join(', ')}`,
+      message: `FIX BEFORE: ${beforeSnapshot.invoice_no} — ${fixes.map(f => `${f.field}: ${beforeSnapshot[f.field]} → ${f.correctValue}`).join(', ')}`,
     });
 
     // ── Apply fixes ──
@@ -275,11 +275,11 @@ export async function POST(request: NextRequest) {
       entity: 'transactions',
       entityId: transactionId,
       payload: JSON.stringify({
-        invoiceNo: beforeSnapshot.invoiceNo,
+        invoiceNo: beforeSnapshot.invoice_no,
         newValues: fixes.map(f => ({ field: f.field, newValue: f.correctValue })),
         reason,
       }),
-      message: `FIX AFTER: ${beforeSnapshot.invoiceNo} — fixed ${fixes.length} field(s)`,
+      message: `FIX AFTER: ${beforeSnapshot.invoice_no} — fixed ${fixes.length} field(s)`,
     });
 
     // ── Build response ──
@@ -293,9 +293,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       transactionId,
-      invoiceNo: beforeSnapshot.invoiceNo,
+      invoiceNo: beforeSnapshot.invoice_no,
       fixes: fixResults,
-      before: beforeSnapshot,
+      before: toCamelCase(beforeSnapshot),
       after: afterSnapshot,
       receivableSync: receivableSyncResults,
       reason,

@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       if (insertError) {
         // If unique constraint violation, update instead
         if (insertError.code === '23505') {
-          await db.from('receivables').update({ paid_amount: tx.paid_amount, remaining_amount: remaining }).eq('transaction_id', tx.id);
+          await db.from('receivables').update({ paid_amount: tx.paid_amount, remaining_amount: remaining, updated_at: new Date().toISOString() }).eq('transaction_id', tx.id);
         }
       } else {
         created++;
@@ -60,10 +60,10 @@ export async function POST(request: NextRequest) {
       if (!tx) continue;
 
       if (tx.paid_amount >= tx.total && r.status === 'active') {
-        await db.from('receivables').update({ paid_amount: tx.total, remaining_amount: 0, status: 'paid' }).eq('id', r.id);
+        await db.from('receivables').update({ paid_amount: tx.total, remaining_amount: 0, status: 'paid', updated_at: new Date().toISOString() }).eq('id', r.id);
         synced++;
       } else if (tx.paid_amount !== r.paid_amount) {
-        await db.from('receivables').update({ paid_amount: tx.paid_amount, remaining_amount: tx.total - tx.paid_amount }).eq('id', r.id);
+        await db.from('receivables').update({ paid_amount: tx.paid_amount, remaining_amount: tx.total - tx.paid_amount, updated_at: new Date().toISOString() }).eq('id', r.id);
         synced++;
       }
     }

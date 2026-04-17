@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAndGetAuthUser } from '@/lib/token';
-import { createLog } from '@/lib/supabase-helpers';
+import { toCamelCase, createLog } from '@/lib/supabase-helpers';
 
 type PromoType = 'discount' | 'bundle' | 'new' | 'flash_sale';
 
@@ -256,12 +256,4 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function toCamelCase<T = Record<string, any>>(row: Record<string, any> | null): T {
-  if (!row) return null as unknown as T;
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(row)) {
-    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-    result[camelKey] = value;
-  }
-  return result as T;
-}
+// toCamelCase imported from @/lib/supabase-helpers

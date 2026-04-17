@@ -17,7 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAndGetAuthUser } from '@/lib/token';
-import { toCamelCase, rowsToCamelCase, createLog } from '@/lib/supabase-helpers';
+import { toCamelCase, createLog } from '@/lib/supabase-helpers';
 
 /** Round to 2 decimals */
 function r2(n: number): number {
@@ -369,12 +369,13 @@ export async function GET(request: NextRequest) {
     }
 
     for (const cb of cashBoxes) {
+      const cbUnit = (cb as any).unit;
       if (Number(cb.balance) < 0) {
         warning.push({
           type: 'negative_cashbox_balance',
           severity: 'warning',
           accountId: cb.id,
-          accountName: `Brankas ${cb.name}${cb.unit?.name ? ` [${cb.unit.name}]` : ''}`,
+          accountName: `Brankas ${cb.name}${cbUnit?.name ? ` [${cbUnit.name}]` : ''}`,
           description: `Saldo brankas NEGATIF: ${rp(cb.balance)}`,
           currentValue: { balance: Number(cb.balance) },
           expectedValue: { balance: 0 },

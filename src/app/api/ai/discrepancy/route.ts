@@ -244,11 +244,11 @@ async function adjustDiscrepancies(userId: string) {
   const roundedProfit = Math.round(actualProfitSum);
 
   await db.from('settings').upsert(
-    { key: 'pool_hpp_paid_balance', value: JSON.stringify(roundedHpp) },
+    { key: 'pool_hpp_paid_balance', value: JSON.stringify(roundedHpp), updated_at: new Date().toISOString() },
     { onConflict: 'key' }
   );
   await db.from('settings').upsert(
-    { key: 'pool_profit_paid_balance', value: JSON.stringify(roundedProfit) },
+    { key: 'pool_profit_paid_balance', value: JSON.stringify(roundedProfit), updated_at: new Date().toISOString() },
     { onConflict: 'key' }
   );
   fixes.push(`Pool HPP disinkronkan ke ${rp(roundedHpp)}`);
@@ -289,7 +289,7 @@ async function adjustDiscrepancies(userId: string) {
   // 3. Sync receivables from transactions
   const { data: activeReceivables } = await db
     .from('receivables')
-    .select('id, transaction_id, remaining_amount')
+    .select('id, transaction_id, remaining_amount, status, total_amount')
     .eq('status', 'active')
     .limit(500);
 
@@ -309,7 +309,20 @@ async function adjustDiscrepancies(userId: string) {
         if (!tx) continue;
         const txRemaining = Number(tx.remaining_amount) || 0;
         const recRemaining = Number(r.remaining_amount) || 0;
-        if (Math.abs(txRemaining - recRemaining) > 1) {
+        // If transaction is fully paid, close the receivable (priority check)
+        if (tx.payment_status === 'paid' && r.status === 'active') {
+          try {
+            await db.from('receivables').update({
+              status: 'paid',
+              remaining_amount: 0,
+              paid_amount: Number(tx.remaining_amount) !== undefined ? recRemaining : (Number(r.total_amount) || 0),
+              updated_at: new Date().toISOString(),
+            }).eq('id', r.id);
+            fixedReceivableCount++;
+          } catch (err: any) {
+            errors.push(`Gagal tutup piutang ${r.id}: ${err.message}`);
+          }
+        } else if (Math.abs(txRemaining - recRemaining) > 1) {
           try {
             await db.from('receivables').update({
               remaining_amount: txRemaining,
@@ -318,19 +331,6 @@ async function adjustDiscrepancies(userId: string) {
             fixedReceivableCount++;
           } catch (err: any) {
             errors.push(`Gagal fix piutang ${r.id}: ${err.message}`);
-          }
-        }
-        // If transaction is fully paid, close the receivable
-        if (tx.payment_status === 'paid' && r.status === 'active') {
-          try {
-            await db.from('receivables').update({
-              status: 'paid',
-              remaining_amount: 0,
-              updated_at: new Date().toISOString(),
-            }).eq('id', r.id);
-            fixedReceivableCount++;
-          } catch (err: any) {
-            errors.push(`Gagal tutup piutang ${r.id}: ${err.message}`);
           }
         }
       }

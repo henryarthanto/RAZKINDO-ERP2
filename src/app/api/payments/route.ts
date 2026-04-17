@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
           transaction_id: data.transactionId,
           received_by_id: authUserId,
           amount: data.amount,
-          paymentMethod: data.paymentMethod,
+          payment_method: data.paymentMethod,
           cash_box_id: data.paymentMethod === 'cash' ? data.cashBoxId : null,
           bank_account_id: (data.paymentMethod === 'transfer' || data.paymentMethod === 'giro') ? data.bankAccountId : null,
           bank_name: data.bankName,
@@ -211,7 +211,8 @@ export async function POST(request: NextRequest) {
           hpp_unpaid: totalHpp - newHppPaid,
           profit_unpaid: totalProfit - newProfitPaid,
           payment_status: paymentStatus,
-          status: txStatus
+          status: txStatus,
+          updated_at: new Date().toISOString(),
         })
         .eq('id', data.transactionId)
         .neq('payment_status', 'paid')
@@ -238,7 +239,8 @@ export async function POST(request: NextRequest) {
             hpp_unpaid: txCamel.hppUnpaid,
             profit_unpaid: txCamel.profitUnpaid,
             payment_status: txCamel.paymentStatus,
-            status: txCamel.status
+            status: txCamel.status,
+            updated_at: new Date().toISOString(),
           })
           .eq('id', data.transactionId);
       } catch { /* best effort */ }
@@ -257,7 +259,8 @@ export async function POST(request: NextRequest) {
           .update({
             paid_amount: newPaidAmount,
             remaining_amount: Math.max(0, newRemaining),
-            status: paymentStatus === 'paid' ? 'paid' : 'active'
+            status: paymentStatus === 'paid' ? 'paid' : 'active',
+            updated_at: new Date().toISOString(),
           })
           .eq('id', receivable.id);
         if (error) throw error;
@@ -276,7 +279,8 @@ export async function POST(request: NextRequest) {
             .update({
               paid_amount: txCamel.paidAmount,
               remaining_amount: txCamel.remainingAmount,
-              status: 'active'
+              status: 'active',
+              updated_at: new Date().toISOString(),
             })
             .eq('id', receivable.id);
         }

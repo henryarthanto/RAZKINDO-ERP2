@@ -360,3 +360,28 @@ Enhanced system prompt with capabilities #9 (Analisa Selisih & Audit Data) and #
 - `src/app/api/ai/promo-image/route.ts` — MODIFIED (batch support, promoType)
 - `src/app/api/ai/chat/route.ts` — MODIFIED (intent detection, audit context, capabilities)
 - `src/components/erp/AIChatPanel.tsx` — MODIFIED (quick prompts, welcome msg, promo handling)
+
+---
+Task ID: 13
+Agent: Main Agent
+Task: Comprehensive bug check and fix for all finance/transaction modules and AI discrepancy routes
+
+Work Log:
+- Surveyed all finance/transaction/payment API routes (24 files), AI routes (11 files), and chat panel component
+- Found 3 critical column-naming bugs (paymentMethod/deliveryAddress in camelCase instead of snake_case for Supabase REST)
+- Found 8 missing updated_at in UPDATE operations across 5 files
+- Found 2 logic bugs in AI discrepancy/fix-discrepancy routes
+- Found 3 minor code quality issues in AI routes
+- Fixed all bugs: 0 TypeScript errors after fixes
+- Verified server running and healthy (HTTP 200)
+
+Stage Summary:
+- Fixed payments/route.ts: payment_method column name + 4x updated_at
+- Fixed transactions/route.ts: delivery_address + payment_method column names
+- Fixed cash-flow/route.ts: payment_method SELECT column
+- Fixed debts/[id]/payment/route.ts: added updated_at
+- Fixed receivables/sync/route.ts: 3x added updated_at
+- Fixed ai/fix-discrepancy/route.ts: beforeSnapshot snake_case mismatch (used raw data for field lookups)
+- Fixed ai/discrepancy/route.ts: double-update/double-count on receivables (else if pattern), added settings updated_at
+- Fixed ai/audit/route.ts: removed unused import, fixed cashbox unit type cast
+- Fixed ai/promo-image/route.ts: replaced local toCamelCase with shared import

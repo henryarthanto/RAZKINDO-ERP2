@@ -186,7 +186,7 @@ async function fetchPayments(dateFilter: Record<string, string>): Promise<CashFl
     .select(`
       id,
       amount,
-      paymentMethod,
+      payment_method,
       hpp_portion,
       profit_portion,
       notes,

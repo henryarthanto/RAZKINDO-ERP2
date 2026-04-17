@@ -109,6 +109,7 @@ export async function POST(
       paid_amount: newPaidAmount,
       remaining_amount: newRemainingAmount,
       status: newStatus,
+      updated_at: new Date().toISOString(),
     }).eq('id', id);
     if (updateErr) throw updateErr;
 
