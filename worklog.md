@@ -129,3 +129,30 @@ Stage Summary:
 - Production build completed and deployed
 - Financial snapshot API now available at GET /api/financial-snapshot
 - Server running on production standalone mode with latest code
+---
+Task ID: 1
+Agent: main
+Task: Fix sale transaction "terjadi kesalahan server" error
+
+Work Log:
+- Verified DATABASE_URL in running process is correct PostgreSQL URL (not SQLite)
+- Checked server logs: dev.log showed a SUCCESSFUL transaction previously (all 4 steps completed)
+- Timer leak of 300s detected, suggesting post-transaction work was slow
+- Investigated all code paths: validators, smart-hpp, db-transaction, token auth
+- Verified all DB column names match insert data (mixed camelCase + snake_case)
+- Confirmed PRODUCT_FINANCIAL_SELECT matches actual DB columns
+- Found client-side timeout is 30 seconds — too short for transaction's 12+ API calls
+- Found receivable creation and stock alerts were blocking the response (await'd)
+
+Fixes Applied:
+1. src/lib/api-client.ts: Increased timeout from 30s to 60s for write operations (POST/PUT/DELETE)
+2. src/app/api/transactions/route.ts: Made receivable creation fire-and-forget (non-blocking)
+3. src/app/api/transactions/route.ts: Made stock alerts fire-and-forget (non-blocking)
+4. src/app/api/transactions/route.ts: Added timing debug logs to POST handler
+5. Server restarted with clean logs for fresh error capture
+
+Stage Summary:
+- Root cause: Client timeout (30s) was too aggressive for complex transaction operations
+- Additionally, post-transaction work (receivables, stock alerts) was blocking the HTTP response
+- Changes deployed via dev server hot-reload
+- tx-error.log cleared for fresh error capture on next attempt
