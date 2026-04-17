@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
         priority: data.priority || 'normal',
         notes: data.notes || '',
         createdById: authUserId,
+        updatedAt: new Date().toISOString(),
       });
 
       const { data: receivable, error } = await db.from('receivables').insert(insertData).select(`

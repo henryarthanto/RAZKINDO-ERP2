@@ -197,7 +197,8 @@ export async function POST(request: NextRequest) {
         min_stock: data.minStock || 0,
         stock_type: stockType,
         track_stock: data.trackStock !== undefined ? data.trackStock : true,
-        image_url: data.imageUrl || null
+        image_url: data.imageUrl || null,
+        updated_at: new Date().toISOString()
       })
       .select('*, unit_products:unit_products(*, unit:units(*))')
       .single();

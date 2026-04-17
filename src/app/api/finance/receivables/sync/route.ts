@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
         remainingAmount: remaining,
         assignedToId: tx.created_by_id,
         priority: tx.due_date && new Date(tx.due_date) < new Date() ? 'high' : 'normal',
+        updatedAt: new Date().toISOString(),
       });
 
       const { error: insertError } = await db.from('receivables').insert(insertData);
