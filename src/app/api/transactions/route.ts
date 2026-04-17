@@ -1048,7 +1048,16 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     txTimer.stop();
     perfMonitor.incrementCounter('transactions.create_failed');
-    console.error('Create transaction error:', error);
+    const errorDetails = error instanceof Error
+      ? `${error.message}\n${error.stack || 'no stack'}`
+      : JSON.stringify(error);
+    console.error('Create transaction error:', errorDetails);
+    // Persist error to file for debugging (won't be cleared by cron)
+    try {
+      const fs = require('fs');
+      const logEntry = `[${new Date().toISOString()}] TX_ERROR: ${errorDetails}\n`;
+      fs.appendFileSync('/home/z/my-project/tx-error.log', logEntry);
+    } catch {}
     const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
     let status = 500;
     if (message.includes('tidak ditemukan')) status = 404;
