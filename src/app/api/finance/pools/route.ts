@@ -251,7 +251,8 @@ export async function GET(request: NextRequest) {
 // PUT /api/finance/pools
 //
 // Manually update pool balances (settings IS the authority).
-// After saving, selisih = 0 by definition because settings IS the source of truth.
+// After saving, selisih = 0 by design because totalPhysical includes courier cash
+// and the composition is calculated to equal totalPhysical.
 // Safety check: total pool cannot exceed total physical.
 // ============================================
 export async function PUT(request: NextRequest) {
@@ -391,13 +392,18 @@ async function computeSyncPreview() {
 
   // 2. RPC suggested values (from DB calculation — for reference/suggestion)
   const rpc = await fetchRpcPoolSums();
-  const suggestedHpp = Math.round(rpc.rpcHppSum);
-  const suggestedProfit = Math.round(rpc.rpcProfitSum);
 
   // 3. Courier pending amounts (money with couriers, not yet in brankas)
+  //    These MUST be included in pool composition so that totalPool = totalPhysical (no selisih)
   const courierSums = await fetchCourierCashSums();
 
-  // 4. Compute changes (current → suggested)
+  // 4. Suggested values = RPC (money already in brankas/bank via handover)
+  //    + courier pending (money still with couriers = part of physical cash)
+  //    This ensures totalPool = totalPhysical → selisih = 0
+  const suggestedHpp = Math.round(rpc.rpcHppSum + courierSums.hppPending);
+  const suggestedProfit = Math.round(rpc.rpcProfitSum + courierSums.profitPending);
+
+  // 5. Compute changes (current → suggested)
   const hppDelta = suggestedHpp - currentHpp;
   const profitDelta = suggestedProfit - currentProfit;
 
@@ -409,17 +415,17 @@ async function computeSyncPreview() {
     changes.push({ field: 'Profit Terbayar', from: currentProfit, to: suggestedProfit, delta: profitDelta });
   }
 
-  // 5. Generate informational warnings (NOT blocking)
+  // 6. Generate informational warnings (NOT blocking)
   const warnings: string[] = [];
   const currentTotal = currentHpp + currentProfit + currentInvestorFund;
   const suggestedTotal = suggestedHpp + suggestedProfit + currentInvestorFund;
 
   if (suggestedHpp === 0 && suggestedProfit === 0 && currentTotal > 0) {
-    warnings.push('⚠️ Hasil sync (berdasarkan referensi RPC) akan membuat HPP dan Profit keduanya menjadi 0. Ini biasanya berarti belum ada pembayaran yang masuk ke brankas/bank maupun setoran kurir yang sudah diproses.');
+    warnings.push('⚠️ Hasil sync akan membuat HPP dan Profit keduanya menjadi 0. Ini biasanya berarti belum ada pembayaran yang masuk ke brankas/bank maupun setoran kurir.');
   }
 
   if (courierSums.hppPending > 0 || courierSums.profitPending > 0) {
-    warnings.push(`📦 Masih ada dana di kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini TIDAK termasuk dalam pool (akan masuk saat kurir setor ke brankas dan handover diproses).`);
+    warnings.push(`📦 Termasuk dana kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini sudah termasuk dalam pool karena merupakan bagian dari dana fisik.`);
   }
 
   if (Math.abs(hppDelta) > currentHpp * 0.5 && currentHpp > 0) {
@@ -430,8 +436,8 @@ async function computeSyncPreview() {
     warnings.push(`📉 Perubahan Profit sangat besar: dari ${currentProfit.toLocaleString('id-ID')} menjadi ${suggestedProfit.toLocaleString('id-ID')} (selisih ${profitDelta > 0 ? '+' : ''}${profitDelta.toLocaleString('id-ID')}). Pastikan data pembayaran dan setoran kurir sudah benar.`);
   }
 
-  // 6. Expected total if courier pending were included
-  const totalWithCourier = suggestedHpp + suggestedProfit + courierSums.hppPending + courierSums.profitPending + currentInvestorFund;
+  // 7. Total including courier (now part of pool by design)
+  const totalWithCourier = suggestedTotal; // already includes courier pending
 
   return {
     // Current settings (authoritative)
@@ -492,7 +498,7 @@ export async function POST(request: NextRequest) {
       const syncPreview = await computeSyncPreview();
       return NextResponse.json({
         ...syncPreview,
-        _info: 'Nilai "suggested" adalah hasil perhitungan RPC dari data pembayaran + setoran kurir. Ini hanya referensi — settings tetap adalah sumber otoritatif.',
+        _info: 'Nilai "suggested" adalah hasil perhitungan dari data pembayaran + setoran kurir + dana kurir yang belum disetor. Sinkronisasi akan membuat selisih = 0.',
       });
     }
 
@@ -517,7 +523,7 @@ export async function POST(request: NextRequest) {
           entity: 'settings',
           entityId: 'pool_hpp_paid_balance',
           userId: auth.userId,
-          message: `Pool dana disinkronkan dari referensi RPC: HPP=${newHpp.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentHpp.toLocaleString('id-ID')}), Profit=${newProfit.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentProfit.toLocaleString('id-ID')}), Dana Lain-lain=${investorFund.toLocaleString('id-ID')}, Total=${totalPool.toLocaleString('id-ID')}`
+          message: `Pool dana disinkronkan (termasuk dana kurir): HPP=${newHpp.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentHpp.toLocaleString('id-ID')}), Profit=${newProfit.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentProfit.toLocaleString('id-ID')}), Dana Lain-lain=${investorFund.toLocaleString('id-ID')}, Total=${totalPool.toLocaleString('id-ID')}`
         });
       } catch { /* ignore */ }
 
@@ -528,45 +534,11 @@ export async function POST(request: NextRequest) {
         totalPool,
         changes: syncPreview.changes,
         warnings: syncPreview.warnings,
-        message: `Pool dana berhasil disinkronkan dari referensi RPC. HPP: ${newHpp.toLocaleString('id-ID')}, Profit: ${newProfit.toLocaleString('id-ID')}`,
+        message: `Pool dana berhasil disinkronkan. HPP: ${newHpp.toLocaleString('id-ID')}, Profit: ${newProfit.toLocaleString('id-ID')}. Selisih = 0.`,
       });
     }
 
-    // ── RESET TO ZERO: Reset all pool balances to 0 ──
-    if (action === 'reset_to_zero') {
-      // Reset all pool balances to 0 using safe upsert
-      await upsertSetting('pool_hpp_paid_balance', JSON.stringify(0));
-      await upsertSetting('pool_profit_paid_balance', JSON.stringify(0));
-      await upsertSetting('pool_investor_fund', JSON.stringify(0));
-
-      // Verify the values were actually saved
-      const { data: verifySettings } = await db
-        .from('settings')
-        .select('key, value')
-        .in('key', ['pool_hpp_paid_balance', 'pool_profit_paid_balance', 'pool_investor_fund']);
-      console.log('[POOL RESET] Verification after reset:', JSON.stringify(verifySettings));
-
-      try {
-        createLog(db, {
-          type: 'audit',
-          action: 'pool_reset_to_zero',
-          entity: 'settings',
-          entityId: 'pool_hpp_paid_balance',
-          userId: auth.userId,
-          message: 'Pool dana direset ke 0'
-        });
-      } catch { /* ignore */ }
-
-      return NextResponse.json({
-        hppPaidBalance: 0,
-        profitPaidBalance: 0,
-        investorFund: 0,
-        totalPool: 0,
-        message: 'Pool dana berhasil direset ke 0'
-      });
-    }
-
-    return NextResponse.json({ error: 'Action tidak valid. Gunakan: preview_sync, sync_from_payments, atau reset_to_zero' }, { status: 400 });
+    return NextResponse.json({ error: 'Action tidak valid. Gunakan: preview_sync atau sync_from_payments' }, { status: 400 });
   } catch (error) {
     console.error('Pool action error:', error);
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
