@@ -385,3 +385,28 @@ Stage Summary:
 - Fixed ai/discrepancy/route.ts: double-update/double-count on receivables (else if pattern), added settings updated_at
 - Fixed ai/audit/route.ts: removed unused import, fixed cashbox unit type cast
 - Fixed ai/promo-image/route.ts: replaced local toCamelCase with shared import
+
+---
+Task ID: 14
+Agent: Main Agent
+Task: Fix broken transaction creation caused by incorrect column naming revert
+
+Work Log:
+- User reported "tidak bisa melakukan transaksi" (cannot perform transactions)
+- Checked tx-error.log: found PGRST204 errors — "Could not find the 'delivery_address' column"
+- Root cause: Previous fix changed `deliveryAddress` → `delivery_address` in transactions INSERT, but the DB column is actually `deliveryAddress` (camelCase) because Prisma has no `@map()` directive for this field
+- Also reverted `paymentMethod` → `payment_method` in payments INSERT — same issue, Payment model has no `@map()` for `paymentMethod`
+- And reverted `payment_method` → `paymentMethod` in cash-flow SELECT for the payments table
+
+Key insight: The Prisma schema has INCONSISTENT @map() directives:
+  - Transaction.paymentMethod HAS @map("payment_method") → DB column = payment_method ✅
+  - Transaction.deliveryAddress has NO @map() → DB column = deliveryAddress (camelCase)
+  - Payment.paymentMethod has NO @map() → DB column = paymentMethod (camelCase)
+
+Stage Summary:
+- Reverted 3 incorrect column name changes from Task 13
+- payments/route.ts: paymentMethod (correct — Payment model has no @map)
+- transactions/route.ts: deliveryAddress (correct — no @map), paymentMethod in auto-payment insert (correct — Payment table)
+- cash-flow/route.ts: paymentMethod in SELECT (correct — Payment table column)
+- Transaction INSERT still uses payment_method (correct — Transaction model has @map)
+- TypeScript: 0 errors, Server: HTTP 200
