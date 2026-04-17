@@ -84,6 +84,8 @@ export async function POST(request: NextRequest) {
     const insertData = toSnakeCase({
       id: generateId(), userId, period, year, month: finalMonth, quarter: finalQuarter,
       targetAmount, notes: notes ?? null, achievedAmount: 0, status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
     const { data: target, error } = await db.from('SalesTarget').insert(insertData).select(`
       *, user:users!user_id(name, email)

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/supabase';
+import { db, prisma } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { enforceFinanceRole } from '@/lib/require-auth';
 import { createLog, generateId } from '@/lib/supabase-helpers';
@@ -131,45 +131,129 @@ async function fetchPhysicalTotals() {
 }
 
 // ============================================
-// HELPER: Fetch RPC pool sums (for audit reference only)
+// HELPER: Fetch pool sums directly from Prisma
+// (bypasses unreliable db.rpc() layer)
+//
+// Pool inflows:
+//   1. Direct sale payments to brankas/bank
+//   2. Courier handovers (setor ke brankas)
+// Pool outflows:
+//   - Finance requests paid from pools (not debt)
 // ============================================
-async function fetchRpcPoolSums() {
-  const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
+async function fetchPoolSumsFromPrisma() {
+  try {
+    // Inflow #1: Direct payments to brankas/bank
+    const directPayments = await prisma.payment.aggregate({
+      _sum: { hppPortion: true, profitPortion: true },
+      where: {
+        transaction: { type: 'sale' },
+        OR: [
+          { cashBoxId: { not: null } },
+          { bankAccountId: { not: null } },
+        ],
+      },
+    });
 
-  if (sumsError) {
-    console.error('[POOL] RPC get_payment_pool_sums failed, using fallback:', sumsError.message);
-    // Fallback: direct query from payments table
-    const { data: fallback } = await db
-      .from('payments')
-      .select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
-    const hppPaidTotal = fallback
-      ?.filter((p: any) => p.cash_box_id || p.bank_account_id)
-      .reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
-    const profitPaidTotal = fallback
-      ?.filter((p: any) => p.cash_box_id || p.bank_account_id)
-      .reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
+    // Inflow #2: Courier handovers (processed)
+    const handovers = await prisma.courierHandover.aggregate({
+      _sum: { hppPortion: true, profitPortion: true, amount: true },
+      where: { status: 'processed' },
+    });
+
+    // Outflow: Finance requests deducted from pools
+    const hppDeductions = await prisma.financeRequest.aggregate({
+      _sum: { amount: true },
+      where: { status: 'processed', fundSource: 'hpp_paid', paymentType: 'pay_now' },
+    });
+
+    const profitDeductions = await prisma.financeRequest.aggregate({
+      _sum: { amount: true },
+      where: { status: 'processed', fundSource: 'profit_unpaid', paymentType: 'pay_now' },
+    });
+
+    const directHpp = directPayments._sum.hppPortion || 0;
+    const directProfit = directPayments._sum.profitPortion || 0;
+    const handoverHpp = handovers._sum.hppPortion || 0;
+    const handoverProfit = handovers._sum.profitPortion || 0;
+    const hppDeducted = hppDeductions._sum.amount || 0;
+    const profitDeducted = profitDeductions._sum.amount || 0;
+
+    const hppPaidTotal = Math.round(directHpp + handoverHpp - hppDeducted);
+    const profitPaidTotal = Math.round(directProfit + handoverProfit - profitDeducted);
+
+    console.log('[POOL] Prisma sums: directHpp=%d, handoverHpp=%d, hppDeducted=%d → hppPaidTotal=%d | directProfit=%d, handoverProfit=%d, profitDeducted=%d → profitPaidTotal=%d',
+      directHpp, handoverHpp, hppDeducted, hppPaidTotal, directProfit, handoverProfit, profitDeducted, profitPaidTotal);
+
     return {
       rpcHppSum: hppPaidTotal,
       rpcProfitSum: profitPaidTotal,
-      directHpp: hppPaidTotal,
-      directProfit: profitPaidTotal,
-      handoverHpp: 0,
-      handoverProfit: 0,
-      hppDeducted: 0,
-      profitDeducted: 0,
+      directHpp,
+      directProfit,
+      handoverHpp,
+      handoverProfit,
+      handoverTotal: handovers._sum.amount || 0,
+      hppDeducted,
+      profitDeducted,
+    };
+  } catch (error) {
+    console.error('[POOL] Prisma pool sums failed:', error);
+    // Fallback: try Supabase REST queries (include handovers!)
+
+    // 1. Direct payments to brankas/bank
+    const { data: payments } = await db
+      .from('payments')
+      .select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
+    const directHpp = (payments || [])
+      .filter((p: any) => p.cash_box_id || p.bank_account_id)
+      .reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0);
+    const directProfit = (payments || [])
+      .filter((p: any) => p.cash_box_id || p.bank_account_id)
+      .reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0);
+
+    // 2. Processed handovers (setor ke brankas via courier)
+    const { data: handovers } = await db
+      .from('courier_handovers')
+      .select('hpp_portion, profit_portion, amount')
+      .eq('status', 'processed');
+    const handoverHpp = (handovers || [])
+      .reduce((sum: number, h: any) => sum + (Number(h.hpp_portion) || 0), 0);
+    const handoverProfit = (handovers || [])
+      .reduce((sum: number, h: any) => sum + (Number(h.profit_portion) || 0), 0);
+
+    // 3. Finance request deductions
+    const { data: hppReqs } = await db
+      .from('finance_requests')
+      .select('amount')
+      .eq('status', 'processed')
+      .eq('fund_source', 'hpp_paid')
+      .eq('payment_type', 'pay_now');
+    const hppDeducted = (hppReqs || [])
+      .reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0);
+
+    const { data: profitReqs } = await db
+      .from('finance_requests')
+      .select('amount')
+      .eq('status', 'processed')
+      .eq('fund_source', 'profit_unpaid')
+      .eq('payment_type', 'pay_now');
+    const profitDeducted = (profitReqs || [])
+      .reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0);
+
+    const hppPaidTotal = Math.round(directHpp + handoverHpp - hppDeducted);
+    const profitPaidTotal = Math.round(directProfit + handoverProfit - profitDeducted);
+
+    return {
+      rpcHppSum: hppPaidTotal,
+      rpcProfitSum: profitPaidTotal,
+      directHpp,
+      directProfit,
+      handoverHpp,
+      handoverProfit,
+      handoverTotal: (handovers || []).reduce((sum: number, h: any) => sum + (Number(h.amount) || 0), 0),
+      hppDeducted,
+      profitDeducted,
     };
   }
-
-  return {
-    rpcHppSum: sumsData?.hppPaidTotal || 0,
-    rpcProfitSum: sumsData?.profitPaidTotal || 0,
-    directHpp: sumsData?.directHpp || 0,
-    directProfit: sumsData?.directProfit || 0,
-    handoverHpp: sumsData?.handoverHpp || 0,
-    handoverProfit: sumsData?.handoverProfit || 0,
-    hppDeducted: sumsData?.hppDeducted || 0,
-    profitDeducted: sumsData?.profitDeducted || 0,
-  };
 }
 
 // ============================================
@@ -200,10 +284,10 @@ export async function GET(request: NextRequest) {
     const poolDiff = totalPool - physical.totalPhysical;
     const hasDiscrepancy = Math.abs(poolDiff) > 100;
 
-    // 4. RPC values (audit reference only — labeled as "referensi RPC")
-    const rpc = await fetchRpcPoolSums();
+    // 4. Calculated pool sums (direct Prisma queries for accuracy)
+    const rpc = await fetchPoolSumsFromPrisma();
 
-    // 5. RPC diff (audit info: how much settings differ from RPC calculation)
+    // 5. Diff: how much settings differ from calculated pool sums
     const rpcDiff = hppPaidBalance - rpc.rpcHppSum;
 
     return NextResponse.json({
@@ -228,7 +312,7 @@ export async function GET(request: NextRequest) {
       courierHppPending: physical.courierSums.hppPending,
       courierProfitPending: physical.courierSums.profitPending,
 
-      // ── RPC audit reference (referensi RPC saja, bukan sumber otoritatif) ──
+      // ── Calculated pool sums (Prisma — for audit reference) ──
       rpcHppSum: rpc.rpcHppSum,
       rpcProfitSum: rpc.rpcProfitSum,
       rpcDiff,
@@ -391,7 +475,7 @@ async function computeSyncPreview() {
   const { hppPaidBalance: currentHpp, profitPaidBalance: currentProfit, investorFund: currentInvestorFund } = currentSettings;
 
   // 2. RPC suggested values (from DB calculation — for reference/suggestion)
-  const rpc = await fetchRpcPoolSums();
+  const rpc = await fetchPoolSumsFromPrisma();
 
   // 3. Courier pending amounts (money with couriers, not yet in brankas)
   //    These MUST be included in pool composition so that totalPool = totalPhysical (no selisih)
