@@ -267,3 +267,27 @@ Stage Summary:
 - Cashback operations now work correctly
 - Both JavaScript fallback (Prisma) and PostgreSQL RPC (SQL) implementations are aligned
 - Server running healthy (HTTP 200)
+
+---
+Task ID: courier-cash-pool-fix
+Agent: main
+Task: Fix courier cash flow — cash should be held by courier first, then deposited to brankas before updating pool balances
+
+Work Log:
+- Investigated current courier cash handling flow across 7+ API routes and frontend components
+- Identified critical bug: pool balances (pool_hpp_paid_balance, pool_profit_paid_balance) were updated immediately when courier received cash, even though money was still in courier's hands
+- Added hppPending/profitPending fields to CourierCash model and hppPortion/profitPortion to CourierHandover model
+- Updated atomic_add_courier_cash RPC to track hpp/profit portions when courier collects cash
+- Fixed /api/courier/deliver: removed pool balance updates, added hpp/profit tracking to courier cash
+- Fixed /api/transactions/mark-lunas: pool balances only updated for non-courier cash (direct to brankas/bank), courier cash tracks hpp/profit portions
+- Fixed /api/courier/handover: added pool balance updates when money enters brankas, with hpp/profit portion calculation
+- Fixed /api/transactions/[id]/cancel: only reverse pool for brankas/bank payments, reverse courier hppPending/profitPending
+- Updated get_payment_pool_sums RPC to exclude courier cash payments (only count brankas/bank deposits)
+- Updated /api/finance/pools sync and GET endpoints to filter courier cash, added courierHppPending/courierProfitPending to response
+- Added visual warning on CourierDashboard for un-deposited cash ("⚠️ Cash belum disetor ke brankas — harap segera setor!")
+
+Stage Summary:
+- Pool balances now correctly reflect only money in brankas/bank, not cash held by couriers
+- Complete flow: Courier receives cash → courier_cash tracks it (with hpp/profit portions) → Courier deposits (setor ke brankas) → pool balances updated
+- Backward compatible: existing data with hppPending=0 works correctly (pool already counted those amounts)
+- Files modified: prisma/schema.prisma, src/lib/supabase.ts, src/app/api/courier/deliver/route.ts, src/app/api/courier/handover/route.ts, src/app/api/transactions/mark-lunas/route.ts, src/app/api/transactions/[id]/cancel/route.ts, src/app/api/finance/pools/route.ts, src/components/erp/CourierDashboard.tsx
