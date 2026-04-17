@@ -4,14 +4,14 @@
 //
 // Provides:
 // 1. ANALYZE — Deep discrepancy analysis across all financial data
-// 2. ADJUST — Auto-fix discrepancies by syncing pool balances & transactions
+// 2. ADJUST — Auto-fix transaction/payment inconsistencies (does NOT touch pool settings)
 // 3. ROOT_CAUSE — AI-powered root cause investigation using LLM
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAndGetAuthUser } from '@/lib/token';
-import { createLog, generateId } from '@/lib/supabase-helpers';
+import { createLog } from '@/lib/supabase-helpers';
 
 function rp(n: number) {
   return 'Rp ' + Math.round(n).toLocaleString('id-ID');
@@ -23,14 +23,14 @@ function rp(n: number) {
 
 async function analyzeDiscrepancies() {
   const results: {
-    poolVsActual: any;
+    poolVsRpc: any;
     poolVsPhysical: any;
     transactionInconsistencies: any[];
     paymentMismatches: any[];
     receivableMismatches: any[];
     summary: any;
   } = {
-    poolVsActual: null,
+    poolVsRpc: null,
     poolVsPhysical: null,
     transactionInconsistencies: [],
     paymentMismatches: [],
@@ -38,7 +38,10 @@ async function analyzeDiscrepancies() {
     summary: null,
   };
 
-  // 1. Pool Balance vs Actual Payment Sums
+  // 1. Pool Balance vs RPC Payment Sums (AUDIT ONLY — not a user-facing discrepancy)
+  //    Settings table is the AUTHORITATIVE source for pool balances.
+  //    RPC is just an independent verification/audit. After manual update,
+  //    settings != RPC is NOT a real discrepancy.
   const { data: settings } = await db
     .from('settings')
     .select('key, value')
@@ -67,17 +70,8 @@ async function analyzeDiscrepancies() {
   const hppDiff = hppPaidBalance - actualHppSum;
   const profitDiff = profitPaidBalance - actualProfitSum;
 
-  results.poolVsActual = {
-    hppPaidBalance,
-    actualHppSum,
-    hppDiff,
-    profitPaidBalance,
-    actualProfitSum,
-    profitDiff,
-    hasDiscrepancy: Math.abs(hppDiff) > 1 || Math.abs(profitDiff) > 1,
-  };
-
-  // 2. Pool vs Physical (Bank + Brankas + Kurir)
+  // NOTE: We compute poolVsPhysical FIRST because poolVsRpc.hasDiscrepancy depends on it.
+  // Pool vs Physical (Bank + Brankas + Kurir) — PRIMARY discrepancy check
   const [bankResult, cashBoxResult, courierResult] = await Promise.all([
     db.from('bank_accounts').select('balance').eq('is_active', true),
     db.from('cash_boxes').select('balance').eq('is_active', true),
@@ -89,6 +83,7 @@ async function analyzeDiscrepancies() {
   const totalCourier = (courierResult.data || []).reduce((s: number, c: any) => s + (Number(c.balance) || 0), 0);
   const totalPhysical = totalBank + totalCashBox + totalCourier;
   const poolPhysicalDiff = totalPool - totalPhysical;
+  const poolPhysicalHasDiscrepancy = Math.abs(poolPhysicalDiff) > 1;
 
   results.poolVsPhysical = {
     totalPool,
@@ -97,8 +92,27 @@ async function analyzeDiscrepancies() {
     totalCourier,
     totalPhysical,
     poolPhysicalDiff,
-    hasDiscrepancy: Math.abs(poolPhysicalDiff) > 1,
+    hasDiscrepancy: poolPhysicalHasDiscrepancy,
   };
+
+  // Pool vs RPC — Only flag as discrepancy if BOTH:
+  //   (a) The difference is significant (abs > 1000)
+  //   AND (b) The pool vs physical also has discrepancy
+  // This prevents false alarms when user manually set correct values but RPC is wrong.
+  const rpcDiffIsSignificant = Math.abs(hppDiff) > 1000 || Math.abs(profitDiff) > 1000;
+
+  results.poolVsRpc = {
+    hppPaidBalance,
+    actualHppSum,
+    hppDiff,
+    profitPaidBalance,
+    actualProfitSum,
+    profitDiff,
+    hasDiscrepancy: rpcDiffIsSignificant && poolPhysicalHasDiscrepancy,
+  };
+
+  // 2. Pool vs Physical was computed above (before poolVsRpc) since poolVsRpc depends on it
+  // results.poolVsPhysical is already populated.
 
   // 3. Transaction Inconsistencies (total ≠ paid_amount + remaining_amount)
   const { data: allSaleTxs } = await db
@@ -204,18 +218,19 @@ async function analyzeDiscrepancies() {
 
   // Summary
   const totalDiscrepancyCount = inconsistencies.length + paymentMismatches.length + results.receivableMismatches.length;
-  const hasAnyDiscrepancy = results.poolVsActual.hasDiscrepancy || results.poolVsPhysical.hasDiscrepancy || totalDiscrepancyCount > 0;
+  const hasAnyDiscrepancy = results.poolVsPhysical.hasDiscrepancy || totalDiscrepancyCount > 0;
 
   results.summary = {
     hasAnyDiscrepancy,
-    poolDiscrepancy: results.poolVsActual.hasDiscrepancy,
+    poolDiscrepancy: results.poolVsPhysical.hasDiscrepancy,
     physicalDiscrepancy: results.poolVsPhysical.hasDiscrepancy,
+    rpcAuditDiscrepancy: results.poolVsRpc.hasDiscrepancy,
     inconsistencyCount: inconsistencies.length,
     paymentMismatchCount: paymentMismatches.length,
     receivableMismatchCount: results.receivableMismatches.length,
     totalDiscrepancyCount,
-    hppDiff,
-    profitDiff,
+    hppRpcDiff: hppDiff,
+    profitRpcDiff: profitDiff,
     poolPhysicalDiff,
   };
 
@@ -230,57 +245,10 @@ async function adjustDiscrepancies(userId: string) {
   const fixes: string[] = [];
   const errors: string[] = [];
 
-  // 1. Sync pool balances from actual payment sums — WITH SAFETY CHECKS
-  const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
-  let actualHppSum = sumsData?.hppPaidTotal || 0;
-  let actualProfitSum = sumsData?.profitPaidTotal || 0;
-  if (sumsError) {
-    const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion');
-    actualHppSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
-    actualProfitSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
-  }
+  // NOTE: Pool settings are manually managed and AUTHORITATIVE.
+  // Auto-adjust will NOT touch pool balances. Only fix transaction/payment inconsistencies.
 
-  const roundedHpp = Math.round(actualHppSum);
-  const roundedProfit = Math.round(actualProfitSum);
-
-  // SAFETY: Get current pool balances to validate the change
-  const { data: currentPoolSettings } = await db
-    .from('settings')
-    .select('key, value')
-    .in('key', ['pool_hpp_paid_balance', 'pool_profit_paid_balance', 'pool_investor_fund']);
-  const getCurrentVal = (key: string) => {
-    const s = currentPoolSettings?.find((s: any) => s.key === key);
-    if (!s) return 0;
-    try { return parseFloat(JSON.parse(s.value)) || 0; }
-    catch { return parseFloat(s.value) || 0; }
-  };
-  const currentHpp = getCurrentVal('pool_hpp_paid_balance');
-  const currentProfit = getCurrentVal('pool_profit_paid_balance');
-  const currentInvestorFund = getCurrentVal('pool_investor_fund');
-  const currentTotal = currentHpp + currentProfit + currentInvestorFund;
-  const newTotal = roundedHpp + roundedProfit + currentInvestorFund;
-
-  // SAFETY: Skip pool sync if it would zero out or drastically reduce existing non-zero balances
-  if (currentTotal > 0 && (roundedHpp === 0 && roundedProfit === 0)) {
-    errors.push(`Pool sync DIBATALKAN: hasil sync akan membuat HPP dan Profit menjadi 0 (sebelumnya HPP=${rp(currentHpp)}, Profit=${rp(currentProfit)}). Ini biasanya berarti data pembayaran ke brankas/bank belum lengkap.`);
-  } else if (currentTotal > 0 && newTotal < currentTotal * 0.2) {
-    errors.push(`Pool sync DIBATALKAN: penurunan terlalu drastis dari ${rp(currentTotal)} ke ${rp(newTotal)} (>80% penurunan). Data pembayaran mungkin belum lengkap.`);
-  } else {
-    // Safe upsert: check-existing → update/insert (Supabase REST doesn't auto-generate id)
-    for (const [key, val] of [['pool_hpp_paid_balance', roundedHpp], ['pool_profit_paid_balance', roundedProfit]] as [string, number][]) {
-      const now = new Date().toISOString();
-      const { data: existing } = await db.from('settings').select('key').eq('key', key).maybeSingle();
-      if (existing) {
-        await db.from('settings').update({ value: JSON.stringify(val), updated_at: now }).eq('key', key);
-      } else {
-        await db.from('settings').insert({ id: generateId(), key, value: JSON.stringify(val), created_at: now, updated_at: now });
-      }
-    }
-    fixes.push(`Pool HPP disinkronkan ke ${rp(roundedHpp)} (sebelumnya ${rp(currentHpp)})`);
-    fixes.push(`Pool Profit disinkronkan ke ${rp(roundedProfit)} (sebelumnya ${rp(currentProfit)})`);
-  }
-
-  // 2. Fix transaction inconsistencies (total ≠ paid + remaining)
+  // 1. Fix transaction inconsistencies (total ≠ paid + remaining)
   const { data: inconsistentTxs } = await db
     .from('transactions')
     .select('id, invoice_no, total, paid_amount, remaining_amount')
@@ -312,7 +280,7 @@ async function adjustDiscrepancies(userId: string) {
     fixes.push(`${fixedTxCount} transaksi inconsistency diperbaiki (remaining_amount disesuaikan)`);
   }
 
-  // 3. Sync receivables from transactions
+  // 2. Sync receivables from transactions
   const { data: activeReceivables } = await db
     .from('receivables')
     .select('id, transaction_id, remaining_amount, status, total_amount')
@@ -393,22 +361,28 @@ async function findRootCause(discrepancyData: any) {
   contextLines.push('=== DATA DISCREPANCY RAZKINDO ===');
   contextLines.push('');
 
-  if (discrepancyData.poolVsActual?.hasDiscrepancy) {
-    const pva = discrepancyData.poolVsActual;
-    contextLines.push('--- POOL vs AKTUAL PEMBAYARAN ---');
-    contextLines.push(`Pool HPP: ${rp(pva.hppPaidBalance)} vs Aktual: ${rp(pva.actualHppSum)} (Selisih: ${rp(pva.hppDiff)})`);
-    contextLines.push(`Pool Profit: ${rp(pva.profitPaidBalance)} vs Aktual: ${rp(pva.actualProfitSum)} (Selisih: ${rp(pva.profitDiff)})`);
-    contextLines.push('');
-  }
-
+  // Primary check: Pool vs Dana Fisik
   if (discrepancyData.poolVsPhysical?.hasDiscrepancy) {
     const pvp = discrepancyData.poolVsPhysical;
-    contextLines.push('--- POOL vs DANA FISIK ---');
+    contextLines.push('--- POOL vs DANA FISIK (CHECK UTAMA) ---');
     contextLines.push(`Total Pool: ${rp(pvp.totalPool)}`);
     contextLines.push(`Bank: ${rp(pvp.totalBank)}, Brankas: ${rp(pvp.totalCashBox)}, Kurir: ${rp(pvp.totalCourier)}`);
     contextLines.push(`Total Fisik: ${rp(pvp.totalPhysical)} (Selisih: ${rp(pvp.poolPhysicalDiff)})`);
     contextLines.push('');
   }
+
+  // Audit only: Pool vs RPC
+  if (discrepancyData.poolVsRpc?.hasDiscrepancy) {
+    const pvr = discrepancyData.poolVsRpc;
+    contextLines.push('--- POOL vs RPC (Audit) ---');
+    contextLines.push(`Pool HPP: ${rp(pvr.hppPaidBalance)} vs RPC: ${rp(pvr.actualHppSum)} (Selisih: ${rp(pvr.hppDiff)})`);
+    contextLines.push(`Pool Profit: ${rp(pvr.profitPaidBalance)} vs RPC: ${rp(pvr.actualProfitSum)} (Selisih: ${rp(pvr.profitDiff)})`);
+    contextLines.push('(Catatan: Ini hanya audit, bukan selisih yang perlu diperbaiki)');
+    contextLines.push('');
+  }
+
+  // Pool vs Physical is already shown above as the primary check
+  // (No duplicate section needed here)
 
   if (discrepancyData.transactionInconsistencies?.length > 0) {
     contextLines.push('--- TRANSAKSI INKONSISTEN ---');

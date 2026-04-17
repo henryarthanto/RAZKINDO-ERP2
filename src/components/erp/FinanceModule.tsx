@@ -273,9 +273,17 @@ export default function FinanceModule() {
   });
   
   // Fetch pool balances from settings (tracked pool balance for 2-step workflow)
+  // Settings IS the authoritative source for pool balances.
+  // API returns: pool balances + physical totals + pool vs physical discrepancy + RPC audit reference
   const { data: poolBalancesData } = useQuery({
     queryKey: ['finance-pools'],
-    queryFn: () => apiFetch<{ hppPaidBalance: number; profitPaidBalance: number; investorFund: number; totalPool: number; actualHppSum: number; actualProfitSum: number; actualTotal: number }>('/api/finance/pools'),
+    queryFn: () => apiFetch<{
+      hppPaidBalance: number; profitPaidBalance: number; investorFund: number; totalPool: number;
+      totalCashInBoxes: number; totalInBanks: number; totalWithCouriers: number; totalPhysical: number;
+      poolDiff: number; hasDiscrepancy: boolean;
+      courierHppPending: number; courierProfitPending: number; courierCashTotal: number;
+      rpcHppSum: number; rpcProfitSum: number; rpcDiff: number;
+    }>('/api/finance/pools'),
     ...POLLING_CONFIG
   });
   
@@ -318,47 +326,54 @@ export default function FinanceModule() {
   const receivableStats = receivablesData?.stats || { totalReceivable: 0, totalOverdue: 0, activeCount: 0, overdueCount: 0, unassignedCount: 0 };
   
   // Calculate fund balances
-  // totalFunds = uang fisik di perusahaan (brankas + bank + uang masih dipegang kurir)
-  // hppInHand/profitInHand adalah metrik PENDAPATAN (total terkumpul dari pelanggan), bukan saldo fisik.
-  // hppPaidBalance/profitPaidBalance adalah saldo pool yang tersedia (settings table).
+  // Settings IS the authoritative source for pool balances.
+  // hppInHand/profitInHand = pool values (HPP/Profit sudah terbayar from settings).
+  // totalFunds = uang fisik di perusahaan (brankas + bank + uang masih dipegang kurir).
+  // poolDiff = selisih antara komposisi pool dan dana fisik.
   const fundBalances = useMemo(() => {
-    // Bug #4 FIX: Use actualHppSum/actualProfitSum from pools API (RPC on full table)
-    // instead of summing payments array which has a 500-record limit
     // Type guard: wrap all API values with Number() to prevent React error #31
-    // (object rendered as child when API returns unexpected shape like PostgrestResponse)
-    const hppInHand = Number(poolBalancesData?.actualHppSum) || 0;
-    const profitInHand = Number(poolBalancesData?.actualProfitSum) || 0;
-    const totalCashInBoxes = cashBoxes.reduce((sum: number, c: CashBox) => sum + c.balance, 0);
-    const totalInBanks = bankAccounts.reduce((sum: number, b: BankAccount) => sum + b.balance, 0);
-    const totalWithCouriers = Number(courierCashSummary?.totalWithCouriers) || 0;
     const hppPaidBalance = Number(poolBalancesData?.hppPaidBalance) || 0;
     const profitPaidBalance = Number(poolBalancesData?.profitPaidBalance) || 0;
     const investorFund = Number(poolBalancesData?.investorFund) || 0;
-    const actualHppSum = Number(poolBalancesData?.actualHppSum) || 0;
-    const actualProfitSum = Number(poolBalancesData?.actualProfitSum) || 0;
-    const actualTotal = Number(poolBalancesData?.actualTotal) || 0;
-    
-    // Total dana = uang fisik di perusahaan (brankas + bank + dana masih di kurir)
-    const totalFunds = totalCashInBoxes + totalInBanks + totalWithCouriers;
-    const totalPool = hppPaidBalance + profitPaidBalance + investorFund;
-    // Pool vs Fisik: selisih antara komposisi pool dan dana fisik
-    const poolDiff = totalPool - totalFunds;
-    
+    const totalPool = Number(poolBalancesData?.totalPool) || 0;
+
+    // Physical totals from API (authoritative — computed server-side)
+    const totalCashInBoxes = Number(poolBalancesData?.totalCashInBoxes) ||
+      cashBoxes.reduce((sum: number, c: CashBox) => sum + c.balance, 0);
+    const totalInBanks = Number(poolBalancesData?.totalInBanks) ||
+      bankAccounts.reduce((sum: number, b: BankAccount) => sum + b.balance, 0);
+    const totalWithCouriers = Number(poolBalancesData?.totalWithCouriers) ||
+      Number(courierCashSummary?.totalWithCouriers) || 0;
+    const totalPhysical = Number(poolBalancesData?.totalPhysical) ||
+      (totalCashInBoxes + totalInBanks + totalWithCouriers);
+
+    // Pool vs Physical discrepancy (from API)
+    const poolDiff = Number(poolBalancesData?.poolDiff) ?? (totalPool - totalPhysical);
+    const hasDiscrepancy = poolBalancesData?.hasDiscrepancy ?? (Math.abs(poolDiff) > 100);
+
+    // Courier pending (money still with couriers, not yet in brankas)
+    const courierHppPending = Number(poolBalancesData?.courierHppPending) || 0;
+    const courierProfitPending = Number(poolBalancesData?.courierProfitPending) || 0;
+
+    // RPC audit info (reference only)
+    const rpcDiff = Number(poolBalancesData?.rpcDiff) || 0;
+
     return {
-      hppInHand,
-      profitInHand,
+      hppInHand: hppPaidBalance,
+      profitInHand: profitPaidBalance,
       totalCashInBoxes,
       totalInBanks,
       totalWithCouriers,
-      totalFunds,
+      totalFunds: totalPhysical,
       hppPaidBalance,
       profitPaidBalance,
       investorFund,
       totalPool,
-      actualHppSum,
-      actualProfitSum,
-      actualTotal,
       poolDiff,
+      hasDiscrepancy,
+      courierHppPending,
+      courierProfitPending,
+      rpcDiff,
     };
   }, [cashBoxes, bankAccounts, courierCashSummary, poolBalancesData]);
   
@@ -579,10 +594,10 @@ export default function FinanceModule() {
   });
 
   const syncPoolsMutation = useMutation({
-    mutationFn: async (force?: boolean) => {
+    mutationFn: async () => {
       return apiFetch('/api/finance/pools', {
         method: 'POST',
-        body: JSON.stringify({ action: 'sync_from_payments', force: force || false })
+        body: JSON.stringify({ action: 'sync_from_payments' })
       });
     },
     onSuccess: (data: any) => {
@@ -1008,20 +1023,14 @@ export default function FinanceModule() {
                     </div>
                   </div>
                 </div>
-                {/* AFTER */}
-                <div className={`p-3 rounded-lg border ${
-                  syncPreviewData.wouldZero
-                    ? 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-800'
-                    : syncPreviewData.drasticChange
-                      ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-800'
-                      : 'bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-800'
-                }`}>
-                  <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Sesudah (Hasil Sync)</p>
+                {/* AFTER — RPC suggestion (referensi saja) */}
+                <div className="p-3 rounded-lg border bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-800">
+                  <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Saran RPC (Referensi)</p>
                   <div className="space-y-1.5 text-xs">
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">HPP:</span>
                       <div className="text-right">
-                        <span className="font-semibold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.newHpp)}</span>
+                        <span className="font-semibold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.suggestedHpp ?? syncPreviewData.newHpp)}</span>
                         {syncPreviewData.hppDelta !== 0 && (
                           syncPreviewData.hppDelta > 0
                             ? <ArrowDownLeft className="w-3 h-3 text-green-500 inline ml-1" />
@@ -1032,7 +1041,7 @@ export default function FinanceModule() {
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Profit:</span>
                       <div className="text-right">
-                        <span className="font-semibold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.newProfit)}</span>
+                        <span className="font-semibold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.suggestedProfit ?? syncPreviewData.newProfit)}</span>
                         {syncPreviewData.profitDelta !== 0 && (
                           syncPreviewData.profitDelta > 0
                             ? <ArrowDownLeft className="w-3 h-3 text-green-500 inline ml-1" />
@@ -1046,42 +1055,43 @@ export default function FinanceModule() {
                     </div>
                     <div className="border-t pt-1 flex justify-between font-bold">
                       <span>Total Pool:</span>
-                      <span className="text-emerald-700 dark:text-emerald-300">{formatCurrency(syncPreviewData.newTotalPool)}</span>
+                      <span className="text-emerald-700 dark:text-emerald-300">{formatCurrency(syncPreviewData.suggestedTotalPool ?? syncPreviewData.newTotalPool)}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Breakdown: deposited vs handover vs courier */}
+              {/* Breakdown: RPC calculation detail (referensi audit) */}
               <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 text-xs space-y-2">
                 <p className="font-semibold text-blue-700 dark:text-blue-300">
-                  📊 Rincian Sumber Data (Ground Truth)
+                  📊 Rincian Perhitungan RPC (Referensi Audit)
                 </p>
+                <p className="text-[10px] text-blue-500 italic">Nilai di bawah adalah hasil perhitungan RPC — hanya untuk referensi, bukan sumber otoritatif.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
                     <p className="text-[10px] text-muted-foreground">Langsung ke Brankas/Bank</p>
-                    <p className="font-semibold text-purple-700 dark:text-purple-300">HPP: {formatCurrency(syncPreviewData.directHpp || 0)}</p>
-                    <p className="font-semibold text-teal-700 dark:text-teal-300">Profit: {formatCurrency(syncPreviewData.directProfit || 0)}</p>
+                    <p className="font-semibold text-purple-700 dark:text-purple-300">HPP: {formatCurrency(syncPreviewData.rpcBreakdown?.directHpp || syncPreviewData.directHpp || 0)}</p>
+                    <p className="font-semibold text-teal-700 dark:text-teal-300">Profit: {formatCurrency(syncPreviewData.rpcBreakdown?.directProfit || syncPreviewData.directProfit || 0)}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-foreground">Setoran Kurir ke Brankas</p>
-                    <p className="font-semibold text-purple-700 dark:text-purple-300">HPP: {formatCurrency(syncPreviewData.handoverHpp || 0)}</p>
-                    <p className="font-semibold text-teal-700 dark:text-teal-300">Profit: {formatCurrency(syncPreviewData.handoverProfit || 0)}</p>
+                    <p className="font-semibold text-purple-700 dark:text-purple-300">HPP: {formatCurrency(syncPreviewData.rpcBreakdown?.handoverHpp || syncPreviewData.handoverHpp || 0)}</p>
+                    <p className="font-semibold text-teal-700 dark:text-teal-300">Profit: {formatCurrency(syncPreviewData.rpcBreakdown?.handoverProfit || syncPreviewData.handoverProfit || 0)}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-foreground">Dipotong untuk Pembelian/Biaya</p>
-                    <p className="font-semibold text-red-600">HPP: -{formatCurrency(syncPreviewData.hppDeducted || 0)}</p>
-                    <p className="font-semibold text-red-600">Profit: -{formatCurrency(syncPreviewData.profitDeducted || 0)}</p>
+                    <p className="font-semibold text-red-600">HPP: -{formatCurrency(syncPreviewData.rpcBreakdown?.hppDeducted || syncPreviewData.hppDeducted || 0)}</p>
+                    <p className="font-semibold text-red-600">Profit: -{formatCurrency(syncPreviewData.rpcBreakdown?.profitDeducted || syncPreviewData.profitDeducted || 0)}</p>
                   </div>
                 </div>
                 <div className="border-t border-blue-200 dark:border-blue-800 pt-1.5 space-y-1 text-[11px]">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Net HPP (hasil sync):</span>
-                    <span className="font-bold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.newHpp)}</span>
+                    <span className="text-muted-foreground">Net HPP (saran RPC):</span>
+                    <span className="font-bold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.suggestedHpp ?? syncPreviewData.newHpp)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Net Profit (hasil sync):</span>
-                    <span className="font-bold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.newProfit)}</span>
+                    <span className="text-muted-foreground">Net Profit (saran RPC):</span>
+                    <span className="font-bold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.suggestedProfit ?? syncPreviewData.newProfit)}</span>
                   </div>
                 </div>
                 {/* Courier pending (not yet in pool) */}
@@ -1119,60 +1129,22 @@ export default function FinanceModule() {
                 </div>
               )}
 
-              {/* Action buttons */}
+              {/* Action buttons — simple accept/cancel, no blocking */}
               <div className="flex flex-col gap-2">
-                {syncPreviewData.wouldZero || syncPreviewData.drasticChange ? (
-                  <>
-                    <Button
-                      onClick={() => syncPoolsMutation.mutate(true)}
-                      disabled={syncPoolsMutation.isPending}
-                      className="w-full bg-red-600 hover:bg-red-700"
-                    >
-                      {syncPoolsMutation.isPending ? 'Menyinkronkan...' : '⚠️ Paksa Sinkron (Tetap 0)'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
-                      className="w-full"
-                    >
-                      Batal — Lebih Aman Gunakan Update Manual
-                    </Button>
-                  </>
-                ) : syncPreviewData.warnings && syncPreviewData.warnings.length > 0 ? (
-                  <>
-                    <Button
-                      onClick={() => syncPoolsMutation.mutate(false)}
-                      disabled={syncPoolsMutation.isPending}
-                      className="w-full bg-amber-600 hover:bg-amber-700"
-                    >
-                      {syncPoolsMutation.isPending ? 'Menyinkronkan...' : '⚠️ Lanjutkan Sinkron (Ada Peringatan)'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
-                      className="w-full"
-                    >
-                      Batal
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      onClick={() => syncPoolsMutation.mutate(false)}
-                      disabled={syncPoolsMutation.isPending}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700"
-                    >
-                      {syncPoolsMutation.isPending ? 'Menyinkronkan...' : '✓ Sinkronkan Sekarang'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
-                      className="w-full"
-                    >
-                      Batal
-                    </Button>
-                  </>
-                )}
+                <Button
+                  onClick={() => syncPoolsMutation.mutate()}
+                  disabled={syncPoolsMutation.isPending}
+                  className={`w-full ${syncPreviewData.warnings && syncPreviewData.warnings.length > 0 ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                >
+                  {syncPoolsMutation.isPending ? 'Menyinkronkan...' : syncPreviewData.warnings && syncPreviewData.warnings.length > 0 ? '⚠️ Terapkan Saran RPC (Ada Peringatan)' : '✓ Terapkan Saran RPC'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
+                  className="w-full"
+                >
+                  Batal
+                </Button>
               </div>
             </div>
           )}

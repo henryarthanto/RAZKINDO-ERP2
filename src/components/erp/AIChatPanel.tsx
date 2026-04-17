@@ -874,18 +874,11 @@ export default function AIChatPanel() {
 
           if (!summary.hasAnyDiscrepancy) {
             reply += '✅ **Semua data tersinkronisasi!** Tidak ada selisih yang ditemukan.\n\n';
-            reply += '• Pool HPP: ✓ OK\n';
-            reply += '• Pool Profit: ✓ OK\n';
+            reply += '• Pool vs Dana Fisik: ✓ OK\n';
             reply += '• Transaksi: ✓ OK\n';
             reply += '• Pembayaran: ✓ OK\n';
           } else {
             if (summary.poolDiscrepancy) {
-              const pva = d.poolVsActual;
-              reply += '⚠️ **Pool vs Aktual Pembayaran:**\n';
-              reply += `• HPP: Pool **${formatCurrency(pva.hppPaidBalance)}** vs Aktual **${formatCurrency(pva.actualHppSum)}** (Selisih: **${formatCurrency(Math.abs(pva.hppDiff))}**)\n`;
-              reply += `• Profit: Pool **${formatCurrency(pva.profitPaidBalance)}** vs Aktual **${formatCurrency(pva.actualProfitSum)}** (Selisih: **${formatCurrency(Math.abs(pva.profitDiff))}**)\n\n`;
-            }
-            if (summary.physicalDiscrepancy) {
               const pvp = d.poolVsPhysical;
               reply += '⚠️ **Pool vs Dana Fisik:**\n';
               reply += `• Total Pool: **${formatCurrency(pvp.totalPool)}**\n`;

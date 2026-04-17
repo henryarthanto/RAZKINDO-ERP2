@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
-import { enforceSuperAdmin } from '@/lib/require-auth';
+import { verifyAuthUser } from '@/lib/token';
 import { toCamelCase } from '@/lib/supabase-helpers';
 
 export async function PATCH(
@@ -8,12 +8,18 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authResult = await enforceSuperAdmin(request);
-    if (!authResult.success) return authResult.response;
+    const authUserId = await verifyAuthUser(request.headers.get('authorization'));
+    if (!authUserId) return NextResponse.json({ error: 'Akses ditolak' }, { status: 401 });
+
+    const { data: authUser } = await db.from('users').select('id, role').eq('id', authUserId).single();
+    if (!authUser || !['super_admin', 'admin', 'keuangan'].includes(authUser.role)) {
+      return NextResponse.json({ error: 'Hanya super_admin, admin, atau keuangan yang dapat mengubah target' }, { status: 403 });
+    }
+
     const { id } = await params;
     const data = await request.json();
 
-    const { data: existing, error: fetchError } = await db.from('SalesTarget').select(`
+    const { data: existing, error: fetchError } = await db.from('sales_targets').select(`
       *, user:users!user_id(name, email)
     `).eq('id', id).single();
 
@@ -36,7 +42,7 @@ export async function PATCH(
     }
     if (data.notes !== undefined) updateData.notes = data.notes;
 
-    const { data: target, error } = await db.from('SalesTarget').update(updateData).eq('id', id).select(`
+    const { data: target, error } = await db.from('sales_targets').update(updateData).eq('id', id).select(`
       *, user:users!user_id(name, email)
     `).single();
     if (error) throw error;
@@ -53,15 +59,21 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authResult = await enforceSuperAdmin(request);
-    if (!authResult.success) return authResult.response;
+    const authUserId = await verifyAuthUser(request.headers.get('authorization'));
+    if (!authUserId) return NextResponse.json({ error: 'Akses ditolak' }, { status: 401 });
+
+    const { data: authUser } = await db.from('users').select('id, role').eq('id', authUserId).single();
+    if (!authUser || authUser.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Hanya super_admin yang dapat menghapus target' }, { status: 403 });
+    }
+
     const { id } = await params;
 
-    const { data: existing } = await db.from('SalesTarget').select('status').eq('id', id).maybeSingle();
+    const { data: existing } = await db.from('sales_targets').select('status').eq('id', id).maybeSingle();
     if (!existing) return NextResponse.json({ error: 'Target penjualan tidak ditemukan' }, { status: 404 });
     if (existing.status !== 'active') return NextResponse.json({ error: 'Hanya target dengan status active yang dapat dihapus' }, { status: 400 });
 
-    const { error } = await db.from('SalesTarget').delete().eq('id', id);
+    const { error } = await db.from('sales_targets').delete().eq('id', id);
     if (error) throw error;
 
     return NextResponse.json({ success: true });

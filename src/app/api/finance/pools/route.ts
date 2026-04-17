@@ -38,15 +38,149 @@ async function upsertSetting(key: string, value: string): Promise<void> {
   }
 }
 
+// ============================================
+// HELPER: Parse a settings value safely (handles both raw numbers and JSON strings)
+// ============================================
+function parseSettingValue(s: { key: string; value: string } | undefined): number {
+  if (!s) return 0;
+  try {
+    return parseFloat(JSON.parse(s.value)) || 0;
+  } catch {
+    return parseFloat(s.value) || 0;
+  }
+}
+
+// ============================================
+// HELPER: Fetch all pool settings in one query
+// ============================================
+async function fetchPoolSettings() {
+  const { data: settings } = await db
+    .from('settings')
+    .select('key, value')
+    .in('key', [
+      'pool_hpp_paid_balance',
+      'pool_profit_paid_balance',
+      'pool_investor_fund',
+    ]);
+
+  const getVal = (key: string) => {
+    const s = settings?.find((s: any) => s.key === key);
+    return parseSettingValue(s);
+  };
+
+  return {
+    hppPaidBalance: getVal('pool_hpp_paid_balance'),
+    profitPaidBalance: getVal('pool_profit_paid_balance'),
+    investorFund: getVal('pool_investor_fund'),
+  };
+}
+
+// ============================================
+// HELPER: Fetch courier cash aggregates (balance, hpp_pending, profit_pending)
+// ============================================
+async function fetchCourierCashSums() {
+  const { data: courierCashRecords } = await db
+    .from('courier_cash')
+    .select('balance, hpp_pending, profit_pending');
+
+  return (courierCashRecords || []).reduce(
+    (acc: { balance: number; hppPending: number; profitPending: number }, cc: any) => ({
+      balance: acc.balance + (cc.balance || 0),
+      hppPending: acc.hppPending + (cc.hpp_pending || 0),
+      profitPending: acc.profitPending + (cc.profit_pending || 0),
+    }),
+    { balance: 0, hppPending: 0, profitPending: 0 }
+  );
+}
+
+// ============================================
+// HELPER: Fetch physical cash totals (brankas + bank + courier)
+// ============================================
+async function fetchPhysicalTotals() {
+  // Sum of all active cash box balances (brankas)
+  const { data: cashBoxes } = await db
+    .from('cash_boxes')
+    .select('balance')
+    .eq('is_active', true);
+  const totalCashInBoxes = (cashBoxes || []).reduce(
+    (sum: number, cb: any) => sum + (Number(cb.balance) || 0),
+    0
+  );
+
+  // Sum of all active bank account balances
+  const { data: bankAccounts } = await db
+    .from('bank_accounts')
+    .select('balance')
+    .eq('is_active', true);
+  const totalInBanks = (bankAccounts || []).reduce(
+    (sum: number, ba: any) => sum + (Number(ba.balance) || 0),
+    0
+  );
+
+  // Sum of all courier cash in hand
+  const courierSums = await fetchCourierCashSums();
+  const totalWithCouriers = courierSums.balance;
+
+  return {
+    totalCashInBoxes,
+    totalInBanks,
+    totalWithCouriers,
+    totalPhysical: totalCashInBoxes + totalInBanks + totalWithCouriers,
+    courierSums,
+  };
+}
+
+// ============================================
+// HELPER: Fetch RPC pool sums (for audit reference only)
+// ============================================
+async function fetchRpcPoolSums() {
+  const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
+
+  if (sumsError) {
+    console.error('[POOL] RPC get_payment_pool_sums failed, using fallback:', sumsError.message);
+    // Fallback: direct query from payments table
+    const { data: fallback } = await db
+      .from('payments')
+      .select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
+    const hppPaidTotal = fallback
+      ?.filter((p: any) => p.cash_box_id || p.bank_account_id)
+      .reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
+    const profitPaidTotal = fallback
+      ?.filter((p: any) => p.cash_box_id || p.bank_account_id)
+      .reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
+    return {
+      rpcHppSum: hppPaidTotal,
+      rpcProfitSum: profitPaidTotal,
+      directHpp: hppPaidTotal,
+      directProfit: profitPaidTotal,
+      handoverHpp: 0,
+      handoverProfit: 0,
+      hppDeducted: 0,
+      profitDeducted: 0,
+    };
+  }
+
+  return {
+    rpcHppSum: sumsData?.hppPaidTotal || 0,
+    rpcProfitSum: sumsData?.profitPaidTotal || 0,
+    directHpp: sumsData?.directHpp || 0,
+    directProfit: sumsData?.directProfit || 0,
+    handoverHpp: sumsData?.handoverHpp || 0,
+    handoverProfit: sumsData?.handoverProfit || 0,
+    hppDeducted: sumsData?.hppDeducted || 0,
+    profitDeducted: sumsData?.profitDeducted || 0,
+  };
+}
+
+// ============================================
 // GET /api/finance/pools
-// Returns current pool balances for the 2-step finance workflow:
-// - hppPaidBalance: HPP Sudah Terbayar — from settings (authoritative)
-// - profitPaidBalance: Profit Sudah Terbayar — from settings (authoritative)
-// - investorFund: Dana Lain-lain (investor, pinjaman, dll) — from settings
-// - totalPool: hppPaidBalance + profitPaidBalance + investorFund
-// - actualHppSum = hppPaidBalance (selisih always 0 after sync/manual update)
-// - actualProfitSum = profitPaidBalance
-// - rpcHppSum / rpcProfitSum: ground truth from DB (used by sync preview only)
+//
+// Returns pool dana balances with the following philosophy:
+// - Settings table IS the authoritative source for pool balances
+// - Physical totals (brankas + bank + courier) are the real-world cash
+// - selisih/discrepancy = pool composition vs physical cash
+// - RPC values are for AUDIT/REFERENCE only, never used to overwrite settings
+// ============================================
 export async function GET(request: NextRequest) {
   try {
     const userId = await verifyAuthUser(request.headers.get('authorization'));
@@ -54,73 +188,58 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Read pool balances from settings table
-    const { data: settings } = await db
-      .from('settings')
-      .select('key, value')
-      .in('key', [
-        'pool_hpp_paid_balance',
-        'pool_profit_paid_balance',
-        'pool_investor_fund',
-      ]);
+    // 1. Authoritative pool balances from settings
+    const poolSettings = await fetchPoolSettings();
+    const { hppPaidBalance, profitPaidBalance, investorFund } = poolSettings;
+    const totalPool = hppPaidBalance + profitPaidBalance + investorFund;
 
-    const getVal = (key: string) => {
-      const s = settings?.find((s: any) => s.key === key);
-      if (!s) return 0;
-      try {
-        return parseFloat(JSON.parse(s.value)) || 0;
-      } catch {
-        return parseFloat(s.value) || 0;
-      }
-    };
+    // 2. Physical cash totals (brankas + bank + courier)
+    const physical = await fetchPhysicalTotals();
 
-    const hppPaidBalance = getVal('pool_hpp_paid_balance');
-    const profitPaidBalance = getVal('pool_profit_paid_balance');
-    const investorFund = getVal('pool_investor_fund');
+    // 3. Pool vs physical discrepancy
+    const poolDiff = totalPool - physical.totalPhysical;
+    const hasDiscrepancy = Math.abs(poolDiff) > 100;
 
-    // Get RPC ground truth (for sync preview / reference only)
-    // actualHppSum/actualProfitSum now = settings values (selisih always 0)
-    const { data: sumsData } = await db.rpc('get_payment_pool_sums');
-    const rpcHppSum = sumsData?.hppPaidTotal || 0;
-    const rpcProfitSum = sumsData?.profitPaidTotal || 0;
-    const directHpp = sumsData?.directHpp || 0;
-    const directProfit = sumsData?.directProfit || 0;
-    const handoverHpp = sumsData?.handoverHpp || 0;
-    const handoverProfit = sumsData?.handoverProfit || 0;
-    const hppDeducted = sumsData?.hppDeducted || 0;
-    const profitDeducted = sumsData?.profitDeducted || 0;
+    // 4. RPC values (audit reference only — labeled as "referensi RPC")
+    const rpc = await fetchRpcPoolSums();
 
-    // Get courier cash pending HPP/profit (money still held by couriers, not yet in brankas)
-    const { data: courierCashRecords } = await db.from('courier_cash').select('balance, hpp_pending, profit_pending');
-    const courierSums = (courierCashRecords || []).reduce((acc: { balance: number; hppPending: number; profitPending: number }, cc: any) => ({
-      balance: acc.balance + (cc.balance || 0),
-      hppPending: acc.hppPending + (cc.hpp_pending || 0),
-      profitPending: acc.profitPending + (cc.profit_pending || 0),
-    }), { balance: 0, hppPending: 0, profitPending: 0 });
+    // 5. RPC diff (audit info: how much settings differ from RPC calculation)
+    const rpcDiff = hppPaidBalance - rpc.rpcHppSum;
 
     return NextResponse.json({
+      // ── AUTHORITATIVE pool balances (from settings) ──
       hppPaidBalance,
       profitPaidBalance,
       investorFund,
-      totalPool: hppPaidBalance + profitPaidBalance + investorFund,
-      // actual = settings value (selisih always 0)
-      actualHppSum: hppPaidBalance,
-      actualProfitSum: profitPaidBalance,
-      actualTotal: hppPaidBalance + profitPaidBalance,
-      // RPC ground truth (for reference / sync preview)
-      rpcHppSum,
-      rpcProfitSum,
-      // Breakdown: where does the ground truth come from?
-      directHpp,
-      directProfit,
-      handoverHpp,
-      handoverProfit,
-      hppDeducted,
-      profitDeducted,
-      // HPP/profit still held by couriers (not yet in brankas)
-      courierHppPending: courierSums?.hppPending || 0,
-      courierProfitPending: courierSums?.profitPending || 0,
-      courierCashTotal: courierSums?.balance || 0,
+      totalPool,
+
+      // ── Physical cash breakdown (real-world) ──
+      totalCashInBoxes: physical.totalCashInBoxes,
+      totalInBanks: physical.totalInBanks,
+      totalWithCouriers: physical.totalWithCouriers,
+      totalPhysical: physical.totalPhysical,
+
+      // ── Discrepancy: pool vs physical ──
+      poolDiff,
+      hasDiscrepancy,
+
+      // ── Courier cash detail ──
+      courierCashTotal: physical.courierSums.balance,
+      courierHppPending: physical.courierSums.hppPending,
+      courierProfitPending: physical.courierSums.profitPending,
+
+      // ── RPC audit reference (referensi RPC saja, bukan sumber otoritatif) ──
+      rpcHppSum: rpc.rpcHppSum,
+      rpcProfitSum: rpc.rpcProfitSum,
+      rpcDiff,
+      rpcBreakdown: {
+        directHpp: rpc.directHpp,
+        directProfit: rpc.directProfit,
+        handoverHpp: rpc.handoverHpp,
+        handoverProfit: rpc.handoverProfit,
+        hppDeducted: rpc.hppDeducted,
+        profitDeducted: rpc.profitDeducted,
+      },
     });
   } catch (error) {
     console.error('Get pool balances error:', error);
@@ -128,8 +247,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ============================================
 // PUT /api/finance/pools
-// Manually update pool balances
+//
+// Manually update pool balances (settings IS the authority).
+// After saving, selisih = 0 by definition because settings IS the source of truth.
+// Safety check: total pool cannot exceed total physical.
+// ============================================
 export async function PUT(request: NextRequest) {
   try {
     const auth = await enforceFinanceRole(request);
@@ -151,7 +275,7 @@ export async function PUT(request: NextRequest) {
         .select('value')
         .eq('key', 'pool_investor_fund')
         .maybeSingle();
-      investorFund = current ? (parseFloat(JSON.parse(current.value)) || 0) : 0;
+      investorFund = current ? parseSettingValue(current as any) : 0;
     } else {
       investorFund = Math.max(0, Math.round(Number(investorFund)));
     }
@@ -182,10 +306,9 @@ export async function PUT(request: NextRequest) {
         }
         finalHpp = Math.max(0, Math.round(poolFromOps - finalProfit));
       } else {
-        const { data: currentHpp } = await db.from('settings').select('value').eq('key', 'pool_hpp_paid_balance').maybeSingle();
-        const { data: currentProfit } = await db.from('settings').select('value').eq('key', 'pool_profit_paid_balance').maybeSingle();
-        finalHpp = currentHpp ? (parseFloat(JSON.parse(currentHpp.value)) || 0) : 0;
-        finalProfit = currentProfit ? (parseFloat(JSON.parse(currentProfit.value)) || 0) : 0;
+        const currentSettings = await fetchPoolSettings();
+        finalHpp = currentSettings.hppPaidBalance;
+        finalProfit = currentSettings.profitPaidBalance;
       }
 
       const totalPool = finalHpp + finalProfit + investorSafe;
@@ -224,11 +347,8 @@ export async function PUT(request: NextRequest) {
     if (investorFundInput !== undefined && hppPaidBalance === undefined && profitPaidBalance === undefined) {
       await upsertSetting('pool_investor_fund', JSON.stringify(investorFund));
 
-      const { data: currentHpp } = await db.from('settings').select('value').eq('key', 'pool_hpp_paid_balance').maybeSingle();
-      const { data: currentProfit } = await db.from('settings').select('value').eq('key', 'pool_profit_paid_balance').maybeSingle();
-      const currentHppVal = currentHpp ? (parseFloat(JSON.parse(currentHpp.value)) || 0) : 0;
-      const currentProfitVal = currentProfit ? (parseFloat(JSON.parse(currentProfit.value)) || 0) : 0;
-      const totalPool = currentHppVal + currentProfitVal + investorFund;
+      const currentSettings = await fetchPoolSettings();
+      const totalPool = currentSettings.hppPaidBalance + currentSettings.profitPaidBalance + investorFund;
 
       try {
         createLog(db, {
@@ -242,8 +362,8 @@ export async function PUT(request: NextRequest) {
       } catch { /* ignore */ }
 
       return NextResponse.json({
-        hppPaidBalance: currentHppVal,
-        profitPaidBalance: currentProfitVal,
+        hppPaidBalance: currentSettings.hppPaidBalance,
+        profitPaidBalance: currentSettings.profitPaidBalance,
         investorFund,
         totalPool,
         message: `Dana lain-lain berhasil diperbarui: ${investorFund.toLocaleString('id-ID')}`
@@ -258,183 +378,137 @@ export async function PUT(request: NextRequest) {
 }
 
 // ============================================
-// HELPER: Compute sync preview with safety checks
-// Returns current vs new values, changes, warnings, and courier pending amounts
+// HELPER: Compute sync preview
+//
+// Shows: current settings values vs RPC suggestion vs courier pending info.
+// RPC values are "suggested values from RPC calculation" — NOT authoritative.
+// Warnings are informational only — no blocking.
 // ============================================
 async function computeSyncPreview() {
-  // Get current pool balances
-  const { data: currentSettings } = await db
-    .from('settings')
-    .select('key, value')
-    .in('key', ['pool_hpp_paid_balance', 'pool_profit_paid_balance', 'pool_investor_fund']);
+  // 1. Current authoritative settings values
+  const currentSettings = await fetchPoolSettings();
+  const { hppPaidBalance: currentHpp, profitPaidBalance: currentProfit, investorFund: currentInvestorFund } = currentSettings;
 
-  const getCurrentVal = (key: string) => {
-    const s = currentSettings?.find((s: any) => s.key === key);
-    if (!s) return 0;
-    try { return parseFloat(JSON.parse(s.value)) || 0; }
-    catch { return parseFloat(s.value) || 0; }
-  };
+  // 2. RPC suggested values (from DB calculation — for reference/suggestion)
+  const rpc = await fetchRpcPoolSums();
+  const suggestedHpp = Math.round(rpc.rpcHppSum);
+  const suggestedProfit = Math.round(rpc.rpcProfitSum);
 
-  const currentHpp = getCurrentVal('pool_hpp_paid_balance');
-  const currentProfit = getCurrentVal('pool_profit_paid_balance');
-  const currentInvestorFund = getCurrentVal('pool_investor_fund');
+  // 3. Courier pending amounts (money with couriers, not yet in brankas)
+  const courierSums = await fetchCourierCashSums();
 
-  // Get actual pool sums from DB (ground truth) — now includes handovers + deductions
-  const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
-  let newHpp = sumsData?.hppPaidTotal || 0;
-  let newProfit = sumsData?.profitPaidTotal || 0;
-  const directHpp = sumsData?.directHpp || 0;
-  const directProfit = sumsData?.directProfit || 0;
-  const handoverHpp = sumsData?.handoverHpp || 0;
-  const handoverProfit = sumsData?.handoverProfit || 0;
-  const hppDeducted = sumsData?.hppDeducted || 0;
-  const profitDeducted = sumsData?.profitDeducted || 0;
-  if (sumsError) {
-    console.error('[POOL SYNC PREVIEW] RPC failed, falling back to direct query:', sumsError.message);
-    const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
-    newHpp = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
-    newProfit = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
-  }
+  // 4. Compute changes (current → suggested)
+  const hppDelta = suggestedHpp - currentHpp;
+  const profitDelta = suggestedProfit - currentProfit;
 
-  const roundedNewHpp = Math.round(newHpp);
-  const roundedNewProfit = Math.round(newProfit);
-
-  // Get courier cash pending (money with couriers, not yet in brankas)
-  const { data: courierCashRecords } = await db.from('courier_cash').select('balance, hpp_pending, profit_pending');
-  const courierSums = (courierCashRecords || []).reduce((acc: { balance: number; hppPending: number; profitPending: number }, cc: any) => ({
-    balance: acc.balance + (cc.balance || 0),
-    hppPending: acc.hppPending + (cc.hpp_pending || 0),
-    profitPending: acc.profitPending + (cc.profit_pending || 0),
-  }), { balance: 0, hppPending: 0, profitPending: 0 });
-
-  // Compute changes
   const changes: { field: string; from: number; to: number; delta: number }[] = [];
-  const hppDelta = roundedNewHpp - currentHpp;
-  const profitDelta = roundedNewProfit - currentProfit;
   if (hppDelta !== 0) {
-    changes.push({ field: 'HPP Terbayar', from: currentHpp, to: roundedNewHpp, delta: hppDelta });
+    changes.push({ field: 'HPP Terbayar', from: currentHpp, to: suggestedHpp, delta: hppDelta });
   }
   if (profitDelta !== 0) {
-    changes.push({ field: 'Profit Terbayar', from: currentProfit, to: roundedNewProfit, delta: profitDelta });
+    changes.push({ field: 'Profit Terbayar', from: currentProfit, to: suggestedProfit, delta: profitDelta });
   }
 
-  // Generate warnings
+  // 5. Generate informational warnings (NOT blocking)
   const warnings: string[] = [];
   const currentTotal = currentHpp + currentProfit + currentInvestorFund;
-  const newTotal = roundedNewHpp + roundedNewProfit + currentInvestorFund;
+  const suggestedTotal = suggestedHpp + suggestedProfit + currentInvestorFund;
 
-  if (roundedNewHpp === 0 && roundedNewProfit === 0 && currentTotal > 0) {
-    warnings.push('⚠️ Hasil sync akan membuat HPP dan Profit keduanya menjadi 0. Ini biasanya berarti belum ada pembayaran yang masuk ke brankas/bank maupun setoran kurir.');
+  if (suggestedHpp === 0 && suggestedProfit === 0 && currentTotal > 0) {
+    warnings.push('⚠️ Hasil sync (berdasarkan referensi RPC) akan membuat HPP dan Profit keduanya menjadi 0. Ini biasanya berarti belum ada pembayaran yang masuk ke brankas/bank maupun setoran kurir yang sudah diproses.');
   }
 
   if (courierSums.hppPending > 0 || courierSums.profitPending > 0) {
-    warnings.push(`📦 Masih ada dana di kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini TIDAK termasuk dalam pool (akan masuk saat kurir setor ke brankas).`);
+    warnings.push(`📦 Masih ada dana di kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini TIDAK termasuk dalam pool (akan masuk saat kurir setor ke brankas dan handover diproses).`);
   }
 
   if (Math.abs(hppDelta) > currentHpp * 0.5 && currentHpp > 0) {
-    warnings.push(`📉 Perubahan HPP sangat besar: dari ${currentHpp.toLocaleString('id-ID')} menjadi ${roundedNewHpp.toLocaleString('id-ID')} (selisih ${hppDelta > 0 ? '+' : ''}${hppDelta.toLocaleString('id-ID')}). Pastikan data pembayaran dan setoran kurir sudah benar.`);
+    warnings.push(`📉 Perubahan HPP sangat besar: dari ${currentHpp.toLocaleString('id-ID')} menjadi ${suggestedHpp.toLocaleString('id-ID')} (selisih ${hppDelta > 0 ? '+' : ''}${hppDelta.toLocaleString('id-ID')}). Pastikan data pembayaran dan setoran kurir sudah benar.`);
   }
 
   if (Math.abs(profitDelta) > currentProfit * 0.5 && currentProfit > 0) {
-    warnings.push(`📉 Perubahan Profit sangat besar: dari ${currentProfit.toLocaleString('id-ID')} menjadi ${roundedNewProfit.toLocaleString('id-ID')} (selisih ${profitDelta > 0 ? '+' : ''}${profitDelta.toLocaleString('id-ID')}). Pastikan data pembayaran dan setoran kurir sudah benar.`);
+    warnings.push(`📉 Perubahan Profit sangat besar: dari ${currentProfit.toLocaleString('id-ID')} menjadi ${suggestedProfit.toLocaleString('id-ID')} (selisih ${profitDelta > 0 ? '+' : ''}${profitDelta.toLocaleString('id-ID')}). Pastikan data pembayaran dan setoran kurir sudah benar.`);
   }
 
-  // The "correct" total should include courier pending amounts (full expected income)
-  const totalWithCourier = roundedNewHpp + roundedNewProfit + courierSums.hppPending + courierSums.profitPending + currentInvestorFund;
+  // 6. Expected total if courier pending were included
+  const totalWithCourier = suggestedHpp + suggestedProfit + courierSums.hppPending + courierSums.profitPending + currentInvestorFund;
 
   return {
+    // Current settings (authoritative)
     currentHpp,
     currentProfit,
     currentInvestorFund,
     currentTotalPool: currentTotal,
-    newHpp: roundedNewHpp,
-    newProfit: roundedNewProfit,
-    newTotalPool: newTotal,
+
+    // RPC suggestion (suggested values from RPC calculation)
+    suggestedHpp,
+    suggestedProfit,
+    suggestedTotalPool: suggestedTotal,
+
+    // Deltas
     hppDelta,
     profitDelta,
-    // Breakdown of ground truth calculation
-    directHpp,
-    directProfit,
-    handoverHpp,
-    handoverProfit,
-    hppDeducted,
-    profitDeducted,
-    // Courier pending
+
+    // RPC breakdown (for transparency)
+    rpcBreakdown: {
+      directHpp: rpc.directHpp,
+      directProfit: rpc.directProfit,
+      handoverHpp: rpc.handoverHpp,
+      handoverProfit: rpc.handoverProfit,
+      hppDeducted: rpc.hppDeducted,
+      profitDeducted: rpc.profitDeducted,
+    },
+
+    // Courier pending (money with couriers, not yet in brankas)
     courierHppPending: courierSums.hppPending,
     courierProfitPending: courierSums.profitPending,
     courierCashTotal: courierSums.balance,
     totalWithCourier,
+
+    // Changes and warnings
     changes,
     warnings,
-    isSafe: warnings.length === 0 && !(currentTotal > 0 && newTotal === 0),
-    wouldZero: currentTotal > 0 && newTotal === 0,
-    drasticChange: currentTotal > 0 && newTotal < currentTotal * 0.2,
   };
 }
 
+// ============================================
 // POST /api/finance/pools
-// Actions: sync_from_payments, preview_sync, reset_to_zero
+//
+// Actions:
+//   - preview_sync: Show RPC suggestion + courier pending info (no changes)
+//   - sync_from_payments: Set settings = RPC values (warnings only, no blocking)
+//   - reset_to_zero: Reset all pool balances to 0
+// ============================================
 export async function POST(request: NextRequest) {
   try {
     const auth = await enforceFinanceRole(request);
     if (!auth.success) return auth.response;
 
     const body = await request.json();
-    const { action, force } = body;
+    const { action } = body;
 
-    // ── PREVIEW SYNC: Show what sync would change WITHOUT applying it ──
+    // ── PREVIEW SYNC: Show what RPC suggests WITHOUT applying it ──
     if (action === 'preview_sync') {
       const syncPreview = await computeSyncPreview();
-      return NextResponse.json(syncPreview);
+      return NextResponse.json({
+        ...syncPreview,
+        _info: 'Nilai "suggested" adalah hasil perhitungan RPC dari data pembayaran + setoran kurir. Ini hanya referensi — settings tetap adalah sumber otoritatif.',
+      });
     }
 
+    // ── SYNC FROM PAYMENTS: Set settings = RPC values (no blocking, just warnings) ──
     if (action === 'sync_from_payments') {
-      // ── SAFETY: Compute sync preview first to validate ──
       const syncPreview = await computeSyncPreview();
 
-      // Prevent sync if result would zero out existing non-zero balances
-      // unless force=true is explicitly passed
-      if (!force) {
-        const currentTotal = syncPreview.currentHpp + syncPreview.currentProfit + syncPreview.currentInvestorFund;
-        const newTotal = syncPreview.newHpp + syncPreview.newProfit + syncPreview.currentInvestorFund;
-
-        // Block sync if it would reduce total pool by more than 50% or to zero when current > 0
-        if (currentTotal > 0 && newTotal === 0) {
-          return NextResponse.json({
-            error: 'Sinkronisasi dibatalkan: Hasil sync akan membuat total pool menjadi 0. Ini kemungkinan besar terjadi karena data pembayaran ke brankas/bank belum lengkap. Gunakan "Preview Sinkron" untuk melihat detail, atau hubungi admin jika yakin ingin memaksa sync.',
-            code: 'SYNC_WOULD_ZERO',
-            preview: syncPreview,
-          }, { status: 400 });
-        }
-
-        // Warn if change is too drastic (>80% reduction)
-        if (currentTotal > 0 && newTotal < currentTotal * 0.2) {
-          return NextResponse.json({
-            error: `Sinkronisasi dibatalkan: Hasil sync akan mengurangi total pool dari ${currentTotal.toLocaleString('id-ID')} menjadi ${newTotal.toLocaleString('id-ID')} (penurunan >80%). Gunakan "Preview Sinkron" untuk melihat detail, atau paksa sync jika yakin.`,
-            code: 'SYNC_DRASTIC_CHANGE',
-            preview: syncPreview,
-          }, { status: 400 });
-        }
-
-        // Block if both HPP and Profit would become 0 when they were previously non-zero
-        if (syncPreview.currentHpp > 0 && syncPreview.newHpp === 0 && syncPreview.currentProfit > 0 && syncPreview.newProfit === 0) {
-          return NextResponse.json({
-            error: 'Sinkronisasi dibatalkan: Baik HPP maupun Profit akan menjadi 0. Data pembayaran ke brankas/bank mungkin belum lengkap. Gunakan "Preview Sinkron" untuk melihat detail.',
-            code: 'SYNC_WOULD_ZERO_BOTH',
-            preview: syncPreview,
-          }, { status: 400 });
-        }
-      }
-
-      const roundedHpp = syncPreview.newHpp;
-      const roundedProfit = syncPreview.newProfit;
+      const newHpp = syncPreview.suggestedHpp;
+      const newProfit = syncPreview.suggestedProfit;
       const investorFund = syncPreview.currentInvestorFund;
 
-      // Use safe upsert instead of Supabase REST upsert
-      await upsertSetting('pool_hpp_paid_balance', JSON.stringify(roundedHpp));
-      await upsertSetting('pool_profit_paid_balance', JSON.stringify(roundedProfit));
+      // Use safe upsert to update settings
+      await upsertSetting('pool_hpp_paid_balance', JSON.stringify(newHpp));
+      await upsertSetting('pool_profit_paid_balance', JSON.stringify(newProfit));
 
-      const totalPool = roundedHpp + roundedProfit + investorFund;
+      const totalPool = newHpp + newProfit + investorFund;
 
       try {
         createLog(db, {
@@ -443,21 +517,22 @@ export async function POST(request: NextRequest) {
           entity: 'settings',
           entityId: 'pool_hpp_paid_balance',
           userId: auth.userId,
-          message: `Pool dana disinkronkan dari pembayaran: HPP=${roundedHpp.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentHpp.toLocaleString('id-ID')}), Profit=${roundedProfit.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentProfit.toLocaleString('id-ID')}), Dana Lain-lain=${investorFund.toLocaleString('id-ID')}, Total=${totalPool.toLocaleString('id-ID')}${force ? ' [FORCED]' : ''}`
+          message: `Pool dana disinkronkan dari referensi RPC: HPP=${newHpp.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentHpp.toLocaleString('id-ID')}), Profit=${newProfit.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentProfit.toLocaleString('id-ID')}), Dana Lain-lain=${investorFund.toLocaleString('id-ID')}, Total=${totalPool.toLocaleString('id-ID')}`
         });
       } catch { /* ignore */ }
 
       return NextResponse.json({
-        hppPaidBalance: roundedHpp,
-        profitPaidBalance: roundedProfit,
+        hppPaidBalance: newHpp,
+        profitPaidBalance: newProfit,
         investorFund,
         totalPool,
         changes: syncPreview.changes,
         warnings: syncPreview.warnings,
-        message: `Pool dana berhasil disinkronkan dari data pembayaran. HPP: ${roundedHpp.toLocaleString('id-ID')}, Profit: ${roundedProfit.toLocaleString('id-ID')}`
+        message: `Pool dana berhasil disinkronkan dari referensi RPC. HPP: ${newHpp.toLocaleString('id-ID')}, Profit: ${newProfit.toLocaleString('id-ID')}`,
       });
     }
 
+    // ── RESET TO ZERO: Reset all pool balances to 0 ──
     if (action === 'reset_to_zero') {
       // Reset all pool balances to 0 using safe upsert
       await upsertSetting('pool_hpp_paid_balance', JSON.stringify(0));
