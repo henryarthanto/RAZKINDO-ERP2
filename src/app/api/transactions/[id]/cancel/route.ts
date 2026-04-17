@@ -140,10 +140,12 @@ export async function POST(
               let newAvgHpp = oldAvgHpp;
               if (newGlobalStock > 0 && oldGlobalStock > 0) {
                 const totalValueBefore = oldGlobalStock * oldAvgHpp;
-                const itemCostPerUnit = Number(itemCamel.hpp) || Number(itemCamel.price) || 0;
+                // BUG-11 FIX: Use ONLY itemCamel.hpp for purchase HPP reversal.
+                // Never fall back to itemCamel.price (that's the selling price, not cost).
+                const itemCostPerUnit = Number(itemCamel.hpp) || 0;
                 const removedValue = stockQty * itemCostPerUnit;
                 if (removedValue > 0) {
-                  newAvgHpp = Math.max(0, Math.round((totalValueBefore - removedValue) / newGlobalStock));
+                  newAvgHpp = Math.max(0, (totalValueBefore - removedValue) / newGlobalStock);
                 }
               } else if (newGlobalStock <= 0) {
                 newAvgHpp = 0;
@@ -160,10 +162,12 @@ export async function POST(
               let newAvgHpp = oldAvgHpp;
               if (newStock > 0 && oldGlobalStock > 0) {
                 const totalValueBefore = oldGlobalStock * oldAvgHpp;
-                const itemCostPerUnit = Number(itemCamel.hpp) || Number(itemCamel.price) || 0;
+                // BUG-11 FIX: Use ONLY itemCamel.hpp for purchase HPP reversal.
+                // Never fall back to itemCamel.price (that's the selling price, not cost).
+                const itemCostPerUnit = Number(itemCamel.hpp) || 0;
                 const removedValue = stockQty * itemCostPerUnit;
                 if (removedValue > 0) {
-                  newAvgHpp = Math.max(0, Math.round((totalValueBefore - removedValue) / newStock));
+                  newAvgHpp = Math.max(0, (totalValueBefore - removedValue) / newStock);
                 }
               } else if (newStock <= 0) {
                 newAvgHpp = 0;
