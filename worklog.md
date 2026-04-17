@@ -332,3 +332,25 @@ Stage Summary:
 - Files modified: src/lib/supabase.ts, src/app/api/finance/receivables/sync/route.ts
 - Lint: 0 errors, 0 warnings
 - Build: SUCCESS (103 routes compiled)
+---
+Task ID: 2
+Agent: main
+Task: Check bugs and errors, fix deploy problems
+
+Work Log:
+- Checked dev server (200 OK), dev logs (no errors), and lint (1 warning)
+- Ran `next build` to catch production build errors
+- Found 3 build-breaking TypeScript errors:
+  1. `storage/route.ts` line 26: `readdir` with `withFileTypes` not compatible with `fs` callback version → Fixed by importing `readdir, stat` from `fs/promises`
+  2. `supabase-health/route.ts` line 96: Ternary expressions infer `string` instead of union type `'connected' | 'degraded' | 'disconnected'` → Fixed by adding `as const` to all status ternary values
+  3. `supabase.ts` line 47: `import { join } from 'path'` causes Turbopack build error → Fixed by using `require('path')` and `require('fs')` inside the fallback function with eslint-disable comments
+- Fixed unused eslint-disable directive in receivables/sync/route.ts
+- Restarted dev server after `.next` cache corruption from concurrent build
+- Verified: lint clean, TypeScript `tsc --noEmit` passes, dev server 200 OK
+
+Stage Summary:
+- 3 TypeScript build errors fixed
+- 1 lint error fixed (require-imports)
+- 1 lint warning cleaned (unused eslint-disable)
+- Dev server restarted and running correctly
+- Files modified: src/app/api/storage/route.ts, src/app/api/system/supabase-health/route.ts, src/lib/supabase.ts
