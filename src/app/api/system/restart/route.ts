@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAuthUser } from '@/lib/token';
+import { enforceSuperAdmin } from '@/lib/require-auth';
 import { execSync, spawn } from 'child_process';
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { join } from 'path';
@@ -18,10 +18,10 @@ import { join } from 'path';
 
 export async function POST(request: NextRequest) {
   try {
-    const authUserId = await verifyAuthUser(request.headers.get('authorization'));
-    if (!authUserId) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await enforceSuperAdmin(request);
+    if (!authResult.success) return NextResponse.json({ success: false, error: 'Akses ditolak' }, { status: authResult.response.status === 401 ? 401 : 403 });
+
+    const authUserId = authResult.userId;
 
     const projectDir = process.cwd();
     const logFile = join(projectDir, 'server-restart.log');

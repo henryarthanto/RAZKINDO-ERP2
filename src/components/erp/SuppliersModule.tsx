@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Building2,
   ShoppingCart,
@@ -129,11 +129,17 @@ export default function SuppliersModule() {
   const products = productsData?.products || [];
   const financeRequests = financeRequestsData?.requests || [];
   
+  // Memoized filtered purchase requests (used 4+ times in JSX)
+  const purchaseRequests = useMemo(
+    () => financeRequests.filter((r: FinanceRequest) => r.type === 'purchase'),
+    [financeRequests]
+  );
+
   // Stats
   const totalSuppliers = suppliers.length;
-  const totalPurchase = purchases.reduce((sum: number, t: Transaction) => sum + t.total, 0);
-  const totalUnpaid = purchases.reduce((sum: number, t: Transaction) => sum + t.remainingAmount, 0);
-  const pendingPurchaseRequests = financeRequests.filter((r: FinanceRequest) => r.type === 'purchase' && r.status === 'pending');
+  const totalPurchase = useMemo(() => purchases.reduce((sum: number, t: Transaction) => sum + t.total, 0), [purchases]);
+  const totalUnpaid = useMemo(() => purchases.reduce((sum: number, t: Transaction) => sum + t.remainingAmount, 0), [purchases]);
+  const pendingPurchaseRequests = purchaseRequests.filter((r: FinanceRequest) => r.status === 'pending');
   
   // Mutation for updating goods status
   const updateGoodsStatusMutation = useMutation({
@@ -899,9 +905,7 @@ export default function SuppliersModule() {
             <CardContent className="p-4 md:p-0">
               {/* Mobile Card Layout */}
               <div className="block md:hidden space-y-2">
-                {financeRequests
-                  .filter((r: FinanceRequest) => r.type === 'purchase')
-                  .map((r: FinanceRequest) => (
+                {purchaseRequests.map((r: FinanceRequest) => (
                   <div key={r.id} className="p-3 border rounded-lg space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-sm min-w-0 truncate font-mono">{r.id.slice(0, 8).toUpperCase()}</span>
@@ -968,7 +972,7 @@ export default function SuppliersModule() {
                     </div>
                   </div>
                 ))}
-                {financeRequests.filter((r: FinanceRequest) => r.type === 'purchase').length === 0 && (
+                {purchaseRequests.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground text-sm">
                     Belum ada request pembelian
                   </div>
@@ -989,9 +993,7 @@ export default function SuppliersModule() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {financeRequests
-                      .filter((r: FinanceRequest) => r.type === 'purchase')
-                      .map((r: FinanceRequest) => (
+                    {purchaseRequests.map((r: FinanceRequest) => (
                       <TableRow key={r.id}>
                         <TableCell className="font-mono text-sm">{r.id.slice(0, 8).toUpperCase()}</TableCell>
                         <TableCell>{r.supplier?.name || '-'}</TableCell>
@@ -1051,7 +1053,7 @@ export default function SuppliersModule() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {financeRequests.filter((r: FinanceRequest) => r.type === 'purchase').length === 0 && (
+                    {purchaseRequests.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           Belum ada request pembelian

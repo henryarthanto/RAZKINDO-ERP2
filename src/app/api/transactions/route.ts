@@ -1065,7 +1065,7 @@ export async function POST(request: NextRequest) {
     console.error(`Create transaction error (${Date.now() - _txStartTime}ms):`, errorDetails);
     // Persist error to file for debugging (won't be cleared by cron)
     try {
-      const fs = require('fs');
+      const fs = await import('fs');
       const logEntry = `[${new Date().toISOString()}] TX_ERROR: ${errorDetails}\n`;
       fs.appendFileSync('/home/z/my-project/tx-error.log', logEntry);
     } catch {}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { rowsToCamelCase, toCamelCase } from '@/lib/supabase-helpers';
 import { enforceSuperAdmin } from '@/lib/require-auth';
+import { generateId } from '@/lib/supabase-helpers';
 
 export async function GET(request: NextRequest) {
   try {
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
     const { data: log } = await db
       .from('logs')
       .insert({
+        id: generateId(),
         type: data.type || 'activity',
         user_id: data.userId,
         action: data.action,

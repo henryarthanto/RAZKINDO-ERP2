@@ -151,7 +151,10 @@ export default function AIChatPanel() {
   }, [messages, broadcastResult]);
 
   useEffect(() => {
-    if (isOpen && activeTab === 'chat') setTimeout(() => inputRef.current?.focus(), 300);
+    if (isOpen && activeTab === 'chat') {
+      const timer = setTimeout(() => inputRef.current?.focus(), 300);
+      return () => clearTimeout(timer);
+    }
   }, [isOpen, activeTab]);
 
   useEffect(() => {

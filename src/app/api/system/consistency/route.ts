@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { consistencyChecker } from '@/lib/consistency-checker';
+import { enforceSuperAdmin } from '@/lib/require-auth';
 
 // =====================================================================
 // GET /api/system/consistency - Run all consistency checks
 // POST /api/system/consistency - Run a specific check by name
 // =====================================================================
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authResult = await enforceSuperAdmin(request);
+    if (!authResult.success) return NextResponse.json({ success: false, error: 'Akses ditolak' }, { status: authResult.response.status === 401 ? 401 : 403 });
+
     const results = await consistencyChecker.runAll();
 
     const allOk = results.every((r) => r.ok);
@@ -36,6 +40,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const authResult = await enforceSuperAdmin(request);
+    if (!authResult.success) return NextResponse.json({ success: false, error: 'Akses ditolak' }, { status: authResult.response.status === 401 ? 401 : 403 });
+
     const body = await request.json();
     const { name } = body;
 

@@ -403,7 +403,7 @@ async function updateGoodsStatus(existingRequest: any, data: any) {
         if (unitProduct) {
           await db.from('unit_products').update({ stock: (unitProduct.stock || 0) + stockQty }).eq('id', unitProduct.id);
         } else {
-          await db.from('unit_products').insert({ unit_id: existingRequest.unit_id, product_id: item.productId, stock: stockQty });
+          await db.from('unit_products').insert({ id: generateId(), unit_id: existingRequest.unit_id, product_id: item.productId, stock: stockQty });
         }
       }
     }

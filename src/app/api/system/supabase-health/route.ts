@@ -2,10 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthUser } from '@/lib/token';
 import { db } from '@/lib/supabase';
 
+// ---- Server-side cache (15 second TTL) ----
+let cachedHealth: { data: Record<string, unknown>; timestamp: number } | null = null;
+const HEALTH_CACHE_TTL = 15_000;
+
 export async function GET(request: NextRequest) {
   try {
     const authUserId = await verifyAuthUser(request.headers.get('authorization'));
     if (!authUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // Return cached health if fresh
+    if (cachedHealth && Date.now() - cachedHealth.timestamp < HEALTH_CACHE_TTL) {
+      return NextResponse.json({ success: true, data: cachedHealth.data });
+    }
 
     const checks: {
       name: string;
@@ -14,128 +23,99 @@ export async function GET(request: NextRequest) {
       detail: string;
     }[] = [];
 
-    // 1. Supabase REST API health check
-    const restStart = performance.now();
-    try {
-      const { error, count } = await db.from('settings').select('*', { count: 'exact', head: true });
-      const restLatency = Math.round(performance.now() - restStart);
-      checks.push({
-        name: 'REST API',
-        status: error ? 'disconnected' : restLatency > 2000 ? 'degraded' : 'connected',
-        latencyMs: restLatency,
-        detail: error ? `Error: ${error.message?.slice(0, 60)}` : `${count || 0} settings loaded`,
-      });
-    } catch (err: any) {
-      checks.push({
-        name: 'REST API',
-        status: 'disconnected',
-        latencyMs: Math.round(performance.now() - restStart),
-        detail: `Connection failed: ${err.message?.slice(0, 60)}`,
-      });
-    }
+    // Run all health checks in parallel
+    const [restResult, tablesResult, prismaResult] = await Promise.all([
+      // 1. Supabase REST API health check
+      (async () => {
+        const start = performance.now();
+        try {
+          const { error, count } = await db.from('settings').select('*', { count: 'exact', head: true });
+          const latency = Math.round(performance.now() - start);
+          return {
+            name: 'REST API',
+            status: error ? 'disconnected' : latency > 2000 ? 'degraded' : 'connected',
+            latencyMs: latency,
+            detail: error ? `Error: ${error.message?.slice(0, 60)}` : `${count || 0} settings`,
+          };
+        } catch (err: unknown) {
+          return {
+            name: 'REST API',
+            status: 'disconnected' as const,
+            latencyMs: Math.round(performance.now() - start),
+            detail: `Connection failed: ${err instanceof Error ? err.message.slice(0, 60) : 'Unknown'}`,
+          };
+        }
+      })(),
 
-    // 2. Database read/write test
-    const rwStart = performance.now();
-    try {
-      // Read
-      const { data: testData, error: readErr } = await db.from('settings').select('key, value').eq('key', '_health_check').maybeSingle();
-      if (readErr) throw readErr;
+      // 2. Check critical tables accessibility (PARALLEL)
+      (async () => {
+        const criticalTables = ['users', 'transactions', 'products', 'customers'];
+        const start = performance.now();
+        const results = await Promise.all(
+          criticalTables.map(async (table) => {
+            try {
+              const { error } = await db.from(table).select('id').limit(1);
+              return !error;
+            } catch { return false; }
+          })
+        );
+        const tablesOk = results.filter(Boolean).length;
+        const latency = Math.round(performance.now() - start);
+        return {
+          name: 'Tabel Kritis',
+          status: tablesOk === criticalTables.length ? 'connected' : tablesOk > 0 ? 'degraded' : 'disconnected',
+          latencyMs: latency,
+          detail: `${tablesOk}/${criticalTables.length} tabel dapat diakses`,
+        };
+      })(),
 
-      // Write (upsert a health check key)
-      const testValue = Date.now().toString();
-      if (testData) {
-        await db.from('settings').update({ value: testValue, updated_at: new Date().toISOString() }).eq('key', '_health_check');
-      } else {
-        const { generateId } = await import('@/lib/supabase-helpers');
-        await db.from('settings').insert({ id: generateId(), key: '_health_check', value: testValue, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-      }
+      // 3. Prisma direct connection check
+      (async () => {
+        const start = performance.now();
+        try {
+          const { prisma } = await import('@/lib/supabase');
+          await prisma.$queryRaw`SELECT 1`;
+          const latency = Math.round(performance.now() - start);
+          return {
+            name: 'Prisma Direct',
+            status: latency > 3000 ? 'degraded' : 'connected',
+            latencyMs: latency,
+            detail: 'Koneksi langsung PostgreSQL OK',
+          };
+        } catch (err: unknown) {
+          return {
+            name: 'Prisma Direct',
+            status: 'disconnected' as const,
+            latencyMs: Math.round(performance.now() - start),
+            detail: `Gagal: ${err instanceof Error ? err.message.slice(0, 60) : 'Unknown'}`,
+          };
+        }
+      })(),
+    ]);
 
-      const rwLatency = Math.round(performance.now() - rwStart);
-      checks.push({
-        name: 'Read/Write',
-        status: rwLatency > 3000 ? 'degraded' : 'connected',
-        latencyMs: rwLatency,
-        detail: 'Read & write berhasil',
-      });
-    } catch (err: any) {
-      checks.push({
-        name: 'Read/Write',
-        status: 'disconnected',
-        latencyMs: Math.round(performance.now() - rwStart),
-        detail: `Gagal: ${err.message?.slice(0, 60)}`,
-      });
-    }
-
-    // 3. Check critical tables accessibility
-    const criticalTables = ['users', 'transactions', 'products', 'customers'];
-    let tablesOk = 0;
-    let tablesTotal = criticalTables.length;
-    const tableStart = performance.now();
-    for (const table of criticalTables) {
-      try {
-        const { error } = await db.from(table).select('id').limit(1);
-        if (!error) tablesOk++;
-      } catch { /* table not accessible */ }
-    }
-    const tableLatency = Math.round(performance.now() - tableStart);
-    checks.push({
-      name: 'Tabel Kritis',
-      status: tablesOk === tablesTotal ? 'connected' : tablesOk > 0 ? 'degraded' : 'disconnected',
-      latencyMs: tableLatency,
-      detail: `${tablesOk}/${tablesTotal} tabel dapat diakses`,
-    });
-
-    // 4. Prisma direct connection check
-    const prismaStart = performance.now();
-    try {
-      const { prisma } = await import('@/lib/supabase');
-      await prisma.$queryRaw`SELECT 1`;
-      const prismaLatency = Math.round(performance.now() - prismaStart);
-      checks.push({
-        name: 'Prisma Direct',
-        status: prismaLatency > 3000 ? 'degraded' : 'connected',
-        latencyMs: prismaLatency,
-        detail: 'Koneksi langsung PostgreSQL OK',
-      });
-    } catch (err: any) {
-      checks.push({
-        name: 'Prisma Direct',
-        status: 'disconnected',
-        latencyMs: Math.round(performance.now() - prismaStart),
-        detail: `Gagal: ${err.message?.slice(0, 60)}`,
-      });
-    }
+    checks.push(restResult, tablesResult, prismaResult);
 
     // Overall status
     const hasDisconnected = checks.some(c => c.status === 'disconnected');
     const hasDegraded = checks.some(c => c.status === 'degraded');
     const overall: 'connected' | 'degraded' | 'disconnected' = hasDisconnected ? 'disconnected' : hasDegraded ? 'degraded' : 'connected';
-
-    // Average latency
     const avgLatency = checks.length > 0 ? Math.round(checks.reduce((s, c) => s + c.latencyMs, 0) / checks.length) : 0;
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        overall,
-        avgLatencyMs: avgLatency,
-        checks,
-        timestamp: new Date().toISOString(),
-      },
-    });
-  } catch (error: any) {
-    console.error('Supabase health error:', error);
+    const data = { overall, avgLatencyMs: avgLatency, checks, timestamp: new Date().toISOString() };
+
+    // Cache the result
+    cachedHealth = { data, timestamp: Date.now() };
+
+    return NextResponse.json({ success: true, data });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Supabase health error:', message);
     return NextResponse.json({
       success: true,
       data: {
         overall: 'disconnected' as const,
         avgLatencyMs: 0,
-        checks: [{
-          name: 'General',
-          status: 'disconnected' as const,
-          latencyMs: 0,
-          detail: `Error: ${error.message?.slice(0, 60)}`,
-        }],
+        checks: [{ name: 'General', status: 'disconnected' as const, latencyMs: 0, detail: `Error: ${message.slice(0, 60)}` }],
         timestamp: new Date().toISOString(),
       },
     });

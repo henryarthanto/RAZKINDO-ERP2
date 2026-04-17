@@ -219,8 +219,8 @@ export function SaleForm({
     ).slice(0, 20);
   }, [customers, customerSearch]);
 
-  const total = cart.reduce((sum, i) => sum + (i.qty * i.price), 0);
-  const totalItems = cart.reduce((sum, i) => sum + i.qty, 0);
+  const total = useMemo(() => cart.reduce((sum, i) => sum + (i.qty * i.price), 0), [cart]);
+  const totalItems = useMemo(() => cart.reduce((sum, i) => sum + i.qty, 0), [cart]);
 
   useEffect(() => { if (unitId) setPosUnitId(unitId); }, [unitId]);
   useEffect(() => { setPaidAmount(paymentMethod === 'cash' && courierId === 'none' ? total : 0); }, [paymentMethod, total, courierId]);

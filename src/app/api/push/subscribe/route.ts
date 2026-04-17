@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthUser } from '@/lib/token';
 import { db } from '@/lib/supabase';
+import { generateId } from '@/lib/supabase-helpers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     await db.from('push_subscriptions').delete().eq('user_id', userId).eq('endpoint', endpoint);
 
     const { error } = await db.from('push_subscriptions').insert({
+      id: generateId(),
       user_id: userId,
       endpoint,
       keys_p256dh: keys.p256dh,
@@ -42,6 +44,7 @@ export async function POST(request: NextRequest) {
         // Delete the old subscription and retry
         await db.from('push_subscriptions').delete().eq('endpoint', endpoint);
         const retry = await db.from('push_subscriptions').insert({
+          id: generateId(),
           user_id: userId,
           endpoint,
           keys_p256dh: keys.p256dh,

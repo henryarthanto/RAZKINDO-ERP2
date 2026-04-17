@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { getWhatsAppConfig, sendMessage, disableWhatsAppOnInvalidToken } from '@/lib/whatsapp';
 import { validateBody } from '@/lib/validators';
 import { z } from 'zod';
+import { generateId } from '@/lib/supabase-helpers';
 
 // Zod schema for phone-based forgot password (route uses phone, not email)
 const forgotPasswordSchema = z.object({
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
     await db
       .from('password_resets')
       .insert({
+        id: generateId(),
         identifier: normalizedPhone,
         code,
         expires_at: expiresAt.toISOString()

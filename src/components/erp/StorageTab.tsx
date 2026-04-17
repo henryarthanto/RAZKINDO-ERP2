@@ -167,12 +167,13 @@ function CircularGauge({ value, max, size = 80, strokeWidth = 6, colorClass }: {
 export default function StorageTab({ queryClient }: { queryClient: QueryClient }) {
   const { user } = useAuthStore();
 
-  // ---- Real-time System Stats ----
+  // ---- Real-time System Stats (recursive setTimeout, visibility-aware) ----
   const [liveStats, setLiveStats] = useState<SystemStats | null>(null);
   const [statsError, setStatsError] = useState(false);
-  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchStats = useCallback(async () => {
+    if (document.hidden) return; // Skip when tab is hidden
     try {
       const json = await apiFetch<{ success: boolean; data: SystemStats; error?: string }>('/api/system/stats');
       if (json.success && json.data) {
@@ -187,16 +188,22 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
   }, []);
 
   useEffect(() => {
-    fetchStats();
-    statsIntervalRef.current = setInterval(fetchStats, 3000); // every 3s
-    return () => { if (statsIntervalRef.current) clearInterval(statsIntervalRef.current); };
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      await fetchStats();
+      if (!cancelled) statsTimerRef.current = setTimeout(poll, 10000); // 10s interval
+    };
+    poll();
+    return () => { cancelled = true; if (statsTimerRef.current) clearTimeout(statsTimerRef.current); };
   }, [fetchStats]);
 
-  // ---- Real-time Supabase Health ----
+  // ---- Real-time Supabase Health (recursive setTimeout, visibility-aware) ----
   const [supabaseHealth, setSupabaseHealth] = useState<SupabaseHealth | null>(null);
-  const healthIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const healthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchHealth = useCallback(async () => {
+    if (document.hidden) return; // Skip when tab is hidden
     try {
       const json = await apiFetch<{ success: boolean; data: SupabaseHealth; error?: string }>('/api/system/supabase-health');
       if (json.success && json.data) {
@@ -206,9 +213,14 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
   }, []);
 
   useEffect(() => {
-    fetchHealth();
-    healthIntervalRef.current = setInterval(fetchHealth, 5000); // every 5s
-    return () => { if (healthIntervalRef.current) clearInterval(healthIntervalRef.current); };
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      await fetchHealth();
+      if (!cancelled) healthTimerRef.current = setTimeout(poll, 30000); // 30s interval
+    };
+    poll();
+    return () => { cancelled = true; if (healthTimerRef.current) clearTimeout(healthTimerRef.current); };
   }, [fetchHealth]);
 
   // ---- Existing Storage Info ----
@@ -219,9 +231,9 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
       if (!json.success) throw new Error(json.error);
       return json.data;
     },
-    refetchInterval: 30000,
+    refetchInterval: (query) => document.hidden ? false : 120000, // 2 min, pause in background
     retry: 1,
-    staleTime: 30_000,
+    staleTime: 60_000,
   });
 
   // Supabase quota query
@@ -232,9 +244,9 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
       if (!json.success) throw new Error(json.error);
       return json.data;
     },
-    refetchInterval: 60000,
+    refetchInterval: (query) => document.hidden ? false : 180000, // 3 min, pause in background
     retry: 1,
-    staleTime: 60_000,
+    staleTime: 120_000,
   });
 
   const [selectedCleanup, setSelectedCleanup] = useState<string[]>([]);
@@ -251,13 +263,14 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
 
   // ---- Restart Server ----
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartMutation = useMutation({
     mutationFn: () => apiFetch('/api/system/restart', { method: 'POST' }),
     onSuccess: () => {
       toast.success('Server sedang di-restart... Tunggu beberapa detik lalu refresh halaman.');
       setShowRestartConfirm(false);
-      // Auto-refresh after 5 seconds
-      setTimeout(() => window.location.reload(), 5000);
+      // Auto-refresh after 5 seconds (tracked in ref for cleanup)
+      restartTimerRef.current = setTimeout(() => window.location.reload(), 5000);
     },
     onError: () => toast.error('Gagal restart server'),
   });
@@ -460,7 +473,7 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
                 <Activity className="w-4 h-4 text-primary" />
                 Monitor Sistem Real-Time
               </CardTitle>
-              <CardDescription>CPU, RAM, dan koneksi database — diperbarui otomatis setiap 3 detik</CardDescription>
+              <CardDescription>CPU, RAM, dan koneksi database — diperbarui otomatis setiap 10 detik</CardDescription>
             </div>
             <div className="flex items-center gap-1.5">
               <Circle className={cn("w-2 h-2 fill-current animate-pulse", liveStats ? "text-emerald-500" : "text-muted-foreground")} />

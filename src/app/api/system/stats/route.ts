@@ -1,24 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthUser } from '@/lib/token';
-import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
+
+// ---- Server-side cache (5 second TTL) ----
+let cachedStats: { data: Record<string, unknown>; timestamp: number } | null = null;
+const STATS_CACHE_TTL = 5000; // 5 seconds — multiple clients share same snapshot
 
 export async function GET(request: NextRequest) {
   try {
     const authUserId = await verifyAuthUser(request.headers.get('authorization'));
     if (!authUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    // Return cached stats if fresh enough
+    if (cachedStats && Date.now() - cachedStats.timestamp < STATS_CACHE_TTL) {
+      return NextResponse.json({ success: true, data: cachedStats.data });
+    }
+
     // --- CPU Load ---
     let cpuPercent = 0;
     let cpuCores = 1;
     let loadAvg: number[] = [0, 0, 0];
     try {
-      // Read /proc/stat for CPU usage (two samples 200ms apart)
       const readCpu = (): number[] => {
         const stat = readFileSync('/proc/stat', 'utf-8');
         const line = stat.split('\n')[0];
         const parts = line.split(/\s+/).slice(1).map(Number);
-        return parts; // [user, nice, system, idle, iowait, irq, softirq, steal]
+        return parts;
       };
       const c1 = readCpu();
       await new Promise(r => setTimeout(r, 200));
@@ -29,19 +36,10 @@ export async function GET(request: NextRequest) {
       const totalDiff = d2 - d1;
       cpuPercent = totalDiff > 0 ? Math.round(((totalDiff - idleDiff) / totalDiff) * 100) : 0;
 
-      // CPU cores
+      // CPU cores & load average — lightweight reads
       cpuCores = readFileSync('/proc/cpuinfo', 'utf-8').split('\n').filter(l => l.startsWith('processor')).length || 1;
-
-      // Load average
       loadAvg = readFileSync('/proc/loadavg', 'utf-8').trim().split(/\s+/).slice(0, 3).map(Number);
-    } catch {
-      try {
-        // macOS fallback
-        const topOut = execSync('top -l 1 -n 0 | head -10', { encoding: 'utf-8', timeout: 5000 });
-        const cpuMatch = topOut.match(/CPU usage:\s*([\d.]+)%\s*user,\s*([\d.]+)%\s*sys/);
-        if (cpuMatch) cpuPercent = Math.round(parseFloat(cpuMatch[1]) + parseFloat(cpuMatch[2]));
-      } catch { /* fallback to 0 */ }
-    }
+    } catch { /* fallback to 0 */ }
 
     // --- Memory ---
     let memTotal = 0; let memUsed = 0; let memAvailable = 0; let memPercent = 0;
@@ -50,7 +48,7 @@ export async function GET(request: NextRequest) {
       const meminfo = readFileSync('/proc/meminfo', 'utf-8');
       const parseMemField = (field: string): number => {
         const match = meminfo.match(new RegExp(`${field}:\\s+(\\d+)`));
-        return match ? parseInt(match[1]) : 0; // in kB
+        return match ? parseInt(match[1]) : 0;
       };
       memTotal = parseMemField('MemTotal');
       memAvailable = parseMemField('MemAvailable');
@@ -58,20 +56,7 @@ export async function GET(request: NextRequest) {
       memPercent = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
       swapTotal = parseMemField('SwapTotal');
       swapUsed = swapTotal - parseMemField('SwapFree');
-    } catch {
-      try {
-        const vmStat = execSync('vm_stat', { encoding: 'utf-8', timeout: 5000 });
-        const pageSize = 4096;
-        const freePages = parseInt(vmStat.match(/Pages free:\s+(\d+)/)?.[1] || '0');
-        const activePages = parseInt(vmStat.match(/Pages active:\s+(\d+)/)?.[1] || '0');
-        const inactivePages = parseInt(vmStat.match(/Pages inactive:\s+(\d+)/)?.[1] || '0');
-        const wiredPages = parseInt(vmStat.match(/Pages wired down:\s+(\d+)/)?.[1] || '0');
-        memTotal = Math.round((freePages + activePages + inactivePages + wiredPages) * pageSize / 1024);
-        memUsed = Math.round((activePages + wiredPages) * pageSize / 1024);
-        memAvailable = Math.round((freePages + inactivePages) * pageSize / 1024);
-        memPercent = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
-      } catch { /* fallback */ }
-    }
+    } catch { /* fallback */ }
 
     // --- Node.js Process Memory ---
     const nodeMem = process.memoryUsage();
@@ -88,44 +73,32 @@ export async function GET(request: NextRequest) {
       processInfo.threads = parseInt(parts[19]) || 1;
     } catch { /* fallback */ }
 
-    // --- Active connections / HTTP requests ---
-    let activeConnections = 0;
-    try {
-      const ssOut = execSync('ss -tunp 2>/dev/null | grep -c ":3000"', { encoding: 'utf-8', timeout: 3000 });
-      activeConnections = parseInt(ssOut.trim()) || 0;
-    } catch { /* fallback */ }
+    // --- Active connections (lightweight — use Node handles instead of execSync) ---
+    const activeConnections = (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.()?.length || 0;
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        cpu: {
-          percent: cpuPercent,
-          cores: cpuCores,
-          loadAvg,
-        },
-        memory: {
-          total: memTotal, // kB
-          used: memUsed,
-          available: memAvailable,
-          percent: memPercent,
-          swapTotal,
-          swapUsed,
-        },
-        nodeMemory: {
-          rss: Math.round(nodeMem.rss / 1024), // kB
-          heapTotal: Math.round(nodeMem.heapTotal / 1024),
-          heapUsed: Math.round(nodeMem.heapUsed / 1024),
-          external: Math.round(nodeMem.external / 1024),
-          arrayBuffers: Math.round(nodeMem.arrayBuffers / 1024),
-        },
-        uptime: uptimeSeconds,
-        process: processInfo,
-        activeConnections,
-        timestamp: new Date().toISOString(),
+    const data = {
+      cpu: { percent: cpuPercent, cores: cpuCores, loadAvg },
+      memory: { total: memTotal, used: memUsed, available: memAvailable, percent: memPercent, swapTotal, swapUsed },
+      nodeMemory: {
+        rss: Math.round(nodeMem.rss / 1024),
+        heapTotal: Math.round(nodeMem.heapTotal / 1024),
+        heapUsed: Math.round(nodeMem.heapUsed / 1024),
+        external: Math.round(nodeMem.external / 1024),
+        arrayBuffers: Math.round(nodeMem.arrayBuffers / 1024),
       },
-    });
-  } catch (error: any) {
-    console.error('System stats error:', error);
+      uptime: uptimeSeconds,
+      process: processInfo,
+      activeConnections,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Cache the result
+    cachedStats = { data, timestamp: Date.now() };
+
+    return NextResponse.json({ success: true, data });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('System stats error:', message);
     return NextResponse.json({ success: false, error: 'Gagal mengambil stats sistem' }, { status: 500 });
   }
 }

@@ -43,10 +43,8 @@ function getSupabaseDbUrl(): string {
   }
   // Fallback: try reading from .env file directly
   try {
-    const fs = require('fs');
-    const path = require('path');
-    const envPath = path.join(process.cwd(), '.env');
-    const envContent = fs.readFileSync(envPath, 'utf8');
+    const envPath = join(process.cwd(), '.env');
+    const envContent = readFileSync(envPath, 'utf8');
     for (const line of envContent.split('\n')) {
       const trimmed = line.trim();
       if (trimmed.startsWith('DIRECT_URL=') || trimmed.startsWith('DATABASE_URL=')) {

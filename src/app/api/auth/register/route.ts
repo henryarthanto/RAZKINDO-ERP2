@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       if (selectedUnitIds.length > 0 && userCamel.id) {
         try {
           await db.from('user_units').insert(
-            selectedUnitIds.map((uid: string) => ({ user_id: userCamel.id, unit_id: uid }))
+            selectedUnitIds.map((uid: string) => ({ id: generateId(), user_id: userCamel.id, unit_id: uid }))
           );
         } catch (uuErr: any) {
           console.warn('[Register] user_units insert failed:', uuErr.message);
@@ -196,6 +196,7 @@ export async function POST(request: NextRequest) {
       // Insert into user_units junction table (snake_case columns)
       if (selectedUnitIds.length > 0 && userCamel.id) {
         const userUnitRows = selectedUnitIds.map((unitId: string) => ({
+          id: generateId(),
           user_id: userCamel.id,
           unit_id: unitId,
         }));

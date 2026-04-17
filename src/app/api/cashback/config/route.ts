@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { toCamelCase } from '@/lib/supabase-helpers';
 import { verifyAuthUser, verifyAndGetAuthUser } from '@/lib/token';
+import { generateId } from '@/lib/supabase-helpers';
 
 // =====================================================================
 // Cashback Config — Super Admin only
@@ -91,6 +92,7 @@ export async function PUT(request: NextRequest) {
     const { data: newConfig, error } = await db
       .from('cashback_config')
       .insert({
+        id: generateId(),
         type: data.type,
         value: data.value,
         max_cashback: data.maxCashback || 0,
