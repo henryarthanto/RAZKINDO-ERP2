@@ -141,7 +141,7 @@ export default function UsersModule() {
   const { data: customRolesData } = useQuery({
     queryKey: ['custom-roles'],
     queryFn: async () => {
-      const res = await fetch('/api/custom-roles', { headers: { authorization: useAuthStore.getState().token || '' } });
+      const res = await fetch('/api/custom-roles', { headers: { authorization: `Bearer ${useAuthStore.getState().token || ''}` } });
       const data = await res.json();
       return data.roles || [];
     },
@@ -294,7 +294,7 @@ export default function UsersModule() {
     mutationFn: async (data: any) => {
       const res = await fetch('/api/custom-roles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', authorization: useAuthStore.getState().token || '' },
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${useAuthStore.getState().token || ''}` },
         body: JSON.stringify(data),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Gagal'); }
@@ -312,7 +312,7 @@ export default function UsersModule() {
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
       const res = await fetch(`/api/custom-roles/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', authorization: useAuthStore.getState().token || '' },
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${useAuthStore.getState().token || ''}` },
         body: JSON.stringify(data),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Gagal'); }
@@ -331,7 +331,7 @@ export default function UsersModule() {
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/custom-roles/${id}`, {
         method: 'DELETE',
-        headers: { authorization: useAuthStore.getState().token || '' },
+        headers: { authorization: `Bearer ${useAuthStore.getState().token || ''}` },
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Gagal'); }
       return res.json();
