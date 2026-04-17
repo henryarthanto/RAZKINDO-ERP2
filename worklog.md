@@ -79,3 +79,11 @@ Stage Summary:
 - Key change: Transaction route now properly handles Supabase REST errors with Prisma fallback
 - Products API now supports server-side search for better performance at scale
 - All FK validation errors now show actual error messages instead of generic "tidak ditemukan"
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix produk tidak ditemukan saat transaksi
+
+Files: products/route.ts, TransactionsModule.tsx, SaleForm.tsx, pwa products route.ts
+TS: 0 errors, Build: OK, Server: HTTP 200

@@ -51,12 +51,8 @@ export async function GET(
       );
     }
 
-    // ── Run all queries in parallel for maximum speed ──
-    const [
-      purchaseHistoryResult,
-      unitProductsResult,
-      productsResult,
-    ] = await Promise.all([
+    // ── Run purchase history + unit products in parallel, then fetch products (paginated) ──
+    const [purchaseHistoryResult, unitProductsResult] = await Promise.all([
       // Purchase history: single nested query (no batching needed)
       db
         .from('transactions')
@@ -70,15 +66,27 @@ export async function GET(
         .from('unit_products')
         .select('product_id, stock')
         .eq('unit_id', customer.unit_id),
+    ]);
 
-      // All active products
-      db
+    // All active products (paginated to avoid silent truncation)
+    const PWA_BATCH = 1000;
+    let allPwaProducts: any[] = [];
+    let pwaProductsError: any = null;
+    let pwaPage = 0;
+    while (true) {
+      const result = await db
         .from('products')
         .select('id, name, sku, unit, sub_unit, conversion_rate, selling_price, global_stock, min_stock, is_active, stock_type, image_url')
         .eq('is_active', true)
         .order('name', { ascending: true })
-        .limit(500),
-    ]);
+        .range(pwaPage * PWA_BATCH, (pwaPage + 1) * PWA_BATCH - 1);
+      if (result.error) { pwaProductsError = result.error; break; }
+      if (!result.data || result.data.length === 0) break;
+      allPwaProducts.push(...result.data);
+      if (result.data.length < PWA_BATCH) break;
+      pwaPage++;
+      if (pwaPage >= 10) break;
+    }
 
     // ── Build purchase frequency map from nested results ──
     const purchaseMap = new Map<string, { count: number; totalQty: number; lastDate: string }>();
@@ -113,9 +121,9 @@ export async function GET(
     }
 
     // ── Build product list with purchase info ──
-    const products = productsResult.data;
-    if (productsResult.error) {
-      console.error('PWA products fetch error:', productsResult.error);
+    const products = allPwaProducts;
+    if (pwaProductsError) {
+      console.error('PWA products fetch error:', pwaProductsError);
       return NextResponse.json(
         { error: 'Gagal memuat produk' },
         { status: 500 }
@@ -132,8 +140,12 @@ export async function GET(
       let effectiveStock: number;
       if (camel.stockType === 'per_unit') {
         const up = unitProductMap.get(productId);
-        if (!up) continue; // Skip products not assigned to this unit
-        effectiveStock = up.stock;
+        if (!up) {
+          // Product is per_unit but not assigned to this unit — show with stock=0 instead of silently skipping
+          effectiveStock = 0;
+        } else {
+          effectiveStock = up.stock;
+        }
       } else {
         // centralized or other
         effectiveStock = camel.globalStock || 0;
