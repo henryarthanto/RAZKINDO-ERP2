@@ -43,6 +43,8 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  RotateCcw,
+  Receipt,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -71,6 +73,7 @@ import CompanyDebtsTab, { ProcessRequestDialog, TransferForm, BankAccountForm, C
 import { PoolAdjustForm } from './PoolAdjustForm';
 import { DepositDialog } from './DepositDialog';
 import CashbackWithdrawalsTab from './CashbackWithdrawalsTab';
+import ExpensesTab from './ExpensesTab';
 
 // ================================
 // HELPER FUNCTIONS (outside component to avoid recreation)
@@ -572,6 +575,22 @@ export default function FinanceModule() {
     }
   });
 
+  const resetPoolsMutation = useMutation({
+    mutationFn: async () => {
+      return apiFetch('/api/finance/pools', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'reset_to_zero' })
+      });
+    },
+    onSuccess: (data: any) => {
+      toast.success(data.message || 'Pool dana berhasil direset ke 0');
+      queryClient.invalidateQueries({ queryKey: ['finance-pools'] });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    }
+  });
+
   // Deposit to bank account mutation
   const bankDepositMutation = useMutation({
     mutationFn: async ({ id, amount, description }: { id: string; amount: number; description?: string }) => {
@@ -713,6 +732,21 @@ export default function FinanceModule() {
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${syncPoolsMutation.isPending ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">Sinkron</span>
+              </Button>
+              {/* Reset to zero button */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                onClick={() => {
+                  if (confirm('Reset semua pool dana ke 0?')) {
+                    resetPoolsMutation.mutate();
+                  }
+                }}
+                disabled={resetPoolsMutation.isPending}
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${resetPoolsMutation.isPending ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Reset 0</span>
               </Button>
               <Dialog open={showPoolDialog} onOpenChange={(open) => { setShowPoolDialog(open); if (open) setPoolFormKey(k => k + 1); }}>
                 <DialogTrigger asChild>
@@ -875,6 +909,12 @@ export default function FinanceModule() {
                   )}
                 </span>
               </SelectItem>
+              <SelectItem value="expenses">
+                <span className="inline-flex items-center gap-2">
+                  <Receipt className="w-4 h-4" />
+                  <span>Pengeluaran</span>
+                </span>
+              </SelectItem>
               <SelectItem value="transfers">
                 <span className="inline-flex items-center gap-2">
                   <ArrowLeftRight className="w-4 h-4" />
@@ -937,6 +977,10 @@ export default function FinanceModule() {
                 {pendingRequests.length}
               </span>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="expenses" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1">
+            <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            Pengeluaran
           </TabsTrigger>
           <TabsTrigger value="transfers" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1">
             <ArrowLeftRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
@@ -1210,6 +1254,11 @@ export default function FinanceModule() {
           </Card>
         </TabsContent>
         
+        {/* Expenses Tab */}
+        <TabsContent value="expenses" className="space-y-4">
+          <ExpensesTab bankAccounts={bankAccounts} cashBoxes={cashBoxes} />
+        </TabsContent>
+
         {/* Transfers Tab */}
         <TabsContent value="transfers" className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">

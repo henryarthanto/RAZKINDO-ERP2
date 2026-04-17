@@ -1,412 +1,74 @@
-# Razkindo ERP - Work Log
+# Worklog
 
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Comprehensive bug and error check for Razkindo ERP
+Task: Explore codebase structure for Razkindo2 ERP fixes
 
 Work Log:
-- Checked dev server logs - server was unstable in dev mode (Turbopack OOM)
-- Read full bug audit report (Fiuuhbugs.md) - 15 bugs identified
-- Verified status of all 15 bugs against current codebase
-- Ran lint check - passed clean
-- Ran TypeScript compilation check - no errors in src/ (only skills/ had errors)
-- Fixed BUG-01: Added `output: 'standalone'` to next.config.ts
-- Fixed BUG-03: Updated package.json start script to use standalone server with 1536MB memory limit
-- Fixed BUG-07: Rewrote start-prod.sh to use standalone server consistently
-- Fixed BUG-08: Replaced all hardcoded paths with dynamic PROJECT_DIR in all shell scripts
-- Fixed BUG-12: Consolidated and cleaned up all shell scripts (removed conflicting watchdogs)
-- Fixed BUG-15: Set ignoreBuildErrors to false in next.config.ts
-- Fixed tsconfig.json: Added skills/, mini-services/, upload/, prompt/ to exclude list
-- Rebuilt production standalone build successfully
-- Started production server - running stable at ~44MB memory
-- Health check confirms: database OK (109ms latency), memory OK, no pressure
-- Updated keep-server-alive.sh to prefer production standalone if built
+- Read Prisma schema (35+ models)
+- Read FinanceModule.tsx (1900+ lines)
+- Read SettingsModule.tsx
+- Read PoolAdjustForm.tsx
+- Read API routes: pools, settings/[key], payments, finance/requests/[id]
+- Read supabase.ts (RPC handlers)
+- Read atomic-ops.ts
+- Identified 4 key issues to fix
 
 Stage Summary:
-- All 15 bugs from audit report now FIXED ✅
-- Production build compiles cleanly with no TypeScript errors
-- Server running stable in production mode (standalone) at ~44MB memory
-- 10 shell scripts consolidated and fixed with dynamic paths
-- Key files modified: next.config.ts, package.json, tsconfig.json, all .sh files, start-prod.sh
+- Found that get_payment_pool_sums RPC was reading from settings (self-referencing!) instead of payments table
+- Found settings PATCH route missing generateId() and updated_at for new inserts
+- Found ExpensesTab exists but lacks 2-step workflow (pool source selection)
+- Pool dana auto-initialize logic prevents starting from 0
 
 ---
 Task ID: 2
 Agent: Main Agent
-Task: Continue bug check — verify fixes + deep scan for new bugs
+Task: Fix Pool Dana - remove auto-initialize, fix RPC, add reset-to-0
 
 Work Log:
-- Verified all 15 original bugs are fixed
-- SUPABASE_SERVICE_ROLE_KEY updated with real service_role JWT from user
-- Ran `npx tsc --noEmit` — 0 errors in src/ (only skills/ has 2 unrelated errors)
-- Tested all API endpoints: / (200), /api/health (200), /api/settings (401), /api/auth/check-superadmin (200)
-- Deep scan of entire src/ codebase found 6 new issues:
-  - BUG-NEW-1 (HIGH): Hardcoded WS fallback secret in ws-dispatch.ts → Removed fallback
-  - BUG-NEW-2 (HIGH): Untrusted userId in audit log (receivables/[id]/route.ts) → Used authUserId
-  - BUG-NEW-3 (MEDIUM): Timer leak in graceful-degradation.ts → Added clearTimeout on success/failure
-  - BUG-NEW-4 (MEDIUM): Abort listener leak in api-client.ts → Named listener with { once: true }
-  - BUG-NEW-5 (MEDIUM): Race condition in PWA orders (no invoice retry) → Added 3-attempt retry loop
-  - BUG-NEW-6 (LOW): .single() error not checked in some routes → Pattern issue, non-critical
-- All fixes verified with `tsc --noEmit` — 0 errors
+- Fixed get_payment_pool_sums RPC in supabase.ts to query actual payments table via Prisma aggregate
+- Removed auto-initialize logic from GET /api/finance/pools (pool can now truly start at 0)
+- Added reset_to_zero action to POST /api/finance/pools
+- Added updated_at to all settings upsert operations in pools route
+- FinanceModule already has Reset 0 button with resetPoolsMutation
 
 Stage Summary:
-- All 15 original bugs: FIXED ✅
-- 5 new bugs from deep scan: FIXED ✅
-- 1 low-priority pattern issue: Documented, non-critical
-- Total TypeScript errors: 0
-- Server: Running stable on port 3000 (HTTP 200)
-- Files modified: ws-dispatch.ts, receivables/[id]/route.ts, graceful-degradation.ts, api-client.ts, pwa/[code]/orders/route.ts, .env
+- Pool dana can now start at 0 and be reset to 0
+- actualHppSum/actualProfitSum now correctly shows ground truth from payments table
+- Reset to 0 action available via POST { action: "reset_to_zero" }
 
 ---
 Task ID: 3
 Agent: Main Agent
-Task: Fix "beberapa produk tidak ditemukan" bug during transaction creation
+Task: Fix Settings Update - add generateId() and updated_at
 
 Work Log:
-- Investigated full transaction creation flow: SaleForm → POST /api/transactions
-- Identified root cause: `productsRow.error` was never checked — Supabase REST API errors silently swallowed and reported as "produk tidak ditemukan"
-- Found secondary cause: GET /api/products had hard `.limit(1000)` with no server-side search
-- Found error messages showed raw UUIDs instead of product names
-- No Prisma fallback existed when Supabase REST API fails
-- Fixed Bug 1: Transaction route now checks ALL FK query errors (unit, customer, courier, supplier, products) before checking null data
-- Fixed Bug 2: Added Prisma fallback for product FK validation when Supabase REST API fails
-- Fixed Bug 3: GET /api/products limit increased to 2000, added server-side search (`?search=` & `?category=`), added Prisma fallback
-- Fixed Bug 4: Error messages now show product names from client-sent items instead of raw UUIDs
-- TypeScript: 0 errors
+- Rewrote PATCH /api/settings/[key] route
+- Split upsert into check-then-insert/update pattern
+- INSERT: includes id: generateId(), created_at, updated_at
+- UPDATE: includes updated_at
+- This fixes Supabase REST not auto-generating cuid() for id field
 
 Stage Summary:
-- Files modified: `src/app/api/transactions/route.ts`, `src/app/api/products/route.ts`
-- Key change: Transaction route now properly handles Supabase REST errors with Prisma fallback
-- Products API now supports server-side search for better performance at scale
-- All FK validation errors now show actual error messages instead of generic "tidak ditemukan"
+- Settings (company_name, company_logo, login_warning) should now save correctly
+- Root cause: Supabase REST doesn't auto-generate id like Prisma does
 
 ---
-Task ID: 2
+Task ID: 4
 Agent: Main Agent
-Task: Fix produk tidak ditemukan saat transaksi
-
-Files: products/route.ts, TransactionsModule.tsx, SaleForm.tsx, pwa products route.ts
-TS: 0 errors, Build: OK, Server: HTTP 200
-
----
-Task ID: 1
-Agent: Main Agent
-Task: Fix 3 bugs: payment page "transaksi tidak ditemukan", sale transaction "gagal memverifikasi produk", PWA customer page "link pwa pelanggan belum ada"
+Task: Add Pengeluaran (Expense) feature with 2-step workflow
 
 Work Log:
-- Investigated all 3 reported bugs
-- Found root causes from dev.log:
-  1. `updated_at` NOT NULL violation in transaction inserts (already fixed in previous session)
-  2. `cashback_type`/`cashback_value` columns missing from DB (already added to Prisma schema + pushed)
-  3. All customer codes were NULL (PWA requires non-null code to look up customers)
-- Initially changed PRODUCT_FINANCIAL_SELECT to snake_case (conversionRate→conversion_rate, subUnit→sub_unit) but this was WRONG — Supabase columns use camelCase for these fields (no @map directive in Prisma schema)
-- Reverted PRODUCT_FINANCIAL_SELECT back to original (conversionRate, subUnit)
-- Generated PWA codes for all 4 existing customers via direct DB update
-- Verified all APIs and pages work correctly
+- Created /api/finance/expenses route (GET for listing, POST for creating)
+- POST creates direct expense with 2-step workflow (pool deduction + physical account deduction)
+- Uses atomicUpdatePoolBalance and atomicUpdateBalance for atomic operations
+- Uses runInTransaction with compensating rollback for safety
+- Updated ExpensesTab.tsx with 2-step workflow UI (fund source + physical account selection)
+- Added category selection, unit selection, and proper form validation
+- Expense list shows with category badges and pagination
 
 Stage Summary:
-- Bug 1 (Payment page): Works correctly — API returns data, HTTP 200. The "transaksi tidak ditemukan" was likely caused by server restart or intermittent connectivity
-- Bug 2 (Sale transaction "gagal memverifikasi produk"): The actual error was `updated_at` NOT NULL violation (code 23502), NOT product verification failure. `updated_at: new Date().toISOString()` was already added to transaction inserts
-- Bug 3 (PWA customer link): Fixed by generating PWA codes for existing customers. Customer codes: PT. Maju Jaya Sentosa=7CJ8FJ, CV. Berkah Sejahtera=QUL687, Toko Sumber Rezeki=HUDDXU, Restoran Nusantara=46NBCE
-- PWA links: /c/7CJ8FJ, /c/QUL687, /c/HUDDXU, /c/46NBCE — all return HTTP 200
-- IMPORTANT: PRODUCT_FINANCIAL_SELECT uses mixed case because Supabase DB has camelCase columns for `conversionRate` and `subUnit` (no @map in Prisma schema)
----
-Task ID: 1
-Agent: main
-Task: Apply bug fixes from uploaded holaa.zip file
-
-Work Log:
-- Extracted holaa.zip containing 4 files with bug fixes
-- Applied BUG-3 fix: toCamelCase(null) now returns null instead of {} in supabase-helpers.ts
-- Applied BUG-4 fix: batch_decrement_centralized_stock wrapped in prisma.$transaction with Serializable isolation
-- Applied BUG-6 fix: Removed invalid Zod v4 { error: string } from z.enum() in validators.ts
-- Created new financial-snapshot API endpoint at /api/financial-snapshot/route.ts
-- Rebuilt production bundle and restarted server
-- Verified all fixes present in compiled production build
-
-Stage Summary:
-- All 4 bug fixes applied successfully
-- Production build completed and deployed
-- Financial snapshot API now available at GET /api/financial-snapshot
-- Server running on production standalone mode with latest code
----
-Task ID: 1
-Agent: main
-Task: Fix sale transaction "terjadi kesalahan server" error
-
-Work Log:
-- Verified DATABASE_URL in running process is correct PostgreSQL URL (not SQLite)
-- Checked server logs: dev.log showed a SUCCESSFUL transaction previously (all 4 steps completed)
-- Timer leak of 300s detected, suggesting post-transaction work was slow
-- Investigated all code paths: validators, smart-hpp, db-transaction, token auth
-- Verified all DB column names match insert data (mixed camelCase + snake_case)
-- Confirmed PRODUCT_FINANCIAL_SELECT matches actual DB columns
-- Found client-side timeout is 30 seconds — too short for transaction's 12+ API calls
-- Found receivable creation and stock alerts were blocking the response (await'd)
-
-Fixes Applied:
-1. src/lib/api-client.ts: Increased timeout from 30s to 60s for write operations (POST/PUT/DELETE)
-2. src/app/api/transactions/route.ts: Made receivable creation fire-and-forget (non-blocking)
-3. src/app/api/transactions/route.ts: Made stock alerts fire-and-forget (non-blocking)
-4. src/app/api/transactions/route.ts: Added timing debug logs to POST handler
-5. Server restarted with clean logs for fresh error capture
-
-Stage Summary:
-- Root cause: Client timeout (30s) was too aggressive for complex transaction operations
-- Additionally, post-transaction work (receivables, stock alerts) was blocking the HTTP response
-- Changes deployed via dev server hot-reload
-- tx-error.log cleared for fresh error capture on next attempt
----
-Task ID: 1
-Agent: Main Agent
-Task: Fix "saat menambah rekening dan brankas tidak bisa" (cannot add bank accounts and cash boxes)
-
-Work Log:
-- Investigated bank_accounts and cash_boxes POST API endpoints
-- Tested with real super_admin auth token - both returned 500 error
-- Checked dev.log: `null value in column "id" of relation "bank_accounts" violates not-null constraint`
-- Root cause: Supabase tables don't have DEFAULT gen_random_uuid() on the id column, so inserts without explicit id fail
-- Fixed `src/app/api/finance/bank-accounts/route.ts` - added `id: generateId()` to insert data
-- Fixed `src/app/api/finance/cash-boxes/route.ts` - added `id: generateId()` to insert data
-- Verified fix: both APIs now return 200 with valid data
-- Scanned all 120 API route files for the same pattern
-- Found 26 files with 32 insert calls missing generateId()
-- Fixed 17 critical files with 22 insert calls total
-- Fixed tables: fund_transfers, receivables, company_debts, company_debt_payments, finance_requests, salary_payments, sales_targets, sales_tasks, sales_task_reports, customers, suppliers, units, customer_follow_ups, receivable_follow_ups, payments, transactions, transaction_items
-
-Stage Summary:
-- Root cause: Supabase tables missing DEFAULT gen_random_uuid() on id columns
-- Fix: Added `id: generateId()` to all entity insert calls
-- 17 files modified, 22 insert calls fixed
-- Server verified working after fix
----
-Task ID: payment-error-fix
-Agent: Main Agent
-Task: Fix "simpan pembayaran: terjadi kesalahan server" (save payment server error)
-
-Work Log:
-- Investigated all payment-related API routes (payments, payment/[invoiceNo], finance/receivables, finance/debts/payment)
-- Found root cause: atomicUpdateBalance and atomicUpdatePoolBalance in atomic-ops.ts throw English error messages from PostgreSQL RPCs (e.g., "Insufficient balance or record not found")
-- The /api/payments catch block only checks Indonesian keywords, so English errors fall through to HTTP 500
-- Fixed atomic-ops.ts: both functions now translate English RPC errors to Indonesian before re-throwing
-- Fixed /api/payments/route.ts: added null-safe guards for HPP/Profit calculations (|| 0)
-- Improved error classification to catch additional patterns ('tidak aktif', 'pool tidak mencukupi')
-- Fix propagates to all 40+ call sites across the app (salaries, transfers, cashback, debts, etc.)
-
-Stage Summary:
-- Files modified: src/lib/atomic-ops.ts, src/app/api/payments/route.ts
-- Error messages now properly translated: "Insufficient balance" → "Saldo Brankas/Akun bank tidak mencukupi"
-- Null-safe HPP/Profit calculations prevent NaN edge cases
-- Server verified healthy after changes (HTTP 200)
-
----
-Task ID: supplier-creation-fix
-Agent: Main Agent
-Task: Fix "tidak bisa menambahkan supplier" (cannot add supplier)
-
-Work Log:
-- Checked dev logs: POST /api/suppliers returning 500
-- Found error: `supplierCamel.id` is null because Supabase insert returns null (error not checked)
-- Root cause: `updated_at` column has NOT NULL constraint but no DEFAULT value; insert doesn't include it
-- Fixed suppliers/route.ts: added `updated_at: new Date().toISOString()` + error checking
-- Found same issue in 7 other files (products, receivables, finance_requests, sales_tasks)
-- Fixed all 8 insert calls across 7 files
-- Verified supplier creation returns 200 OK
-
-Stage Summary:
-- Files modified: suppliers/route.ts, products/route.ts, finance/receivables/route.ts, finance/receivables/sync/route.ts, pwa-orders/approve/route.ts, transactions/route.ts, finance/requests/route.ts, salaries/route.ts, sales-tasks/route.ts
-- Root cause: DB tables have `updated_at NOT NULL` without DEFAULT; Supabase REST API doesn't auto-generate it
-- All insert operations now include `updated_at: new Date().toISOString()`
-- Verified: POST /api/suppliers returns 200 with valid data
-
----
-Task ID: custom-role-unauthorized-fix
-Agent: Main Agent
-Task: Fix "saat menambahkan role custom: unauthorized" error
-
-Work Log:
-- Investigated custom-roles API: POST /api/custom-roles uses enforceSuperAdmin
-- Verified API works correctly with valid auth token (tested with curl)
-- Found that the users table has duplicate columns (created_at/updated_at in both timestamp and timestamptz)
-- Found users.id has NO DEFAULT value in DB (Supabase REST can't auto-generate)
-- Found users.updated_at has NO DEFAULT value (NOT NULL constraint without default)
-
-Fixes Applied:
-1. src/app/api/auth/register/route.ts:
-   - Added `enforceSuperAdmin` check for non-ERP employee creation (security fix)
-   - Added `id: generateId()` to both insert paths (non-ERP and standard ERP)
-   - Added `updated_at: new Date().toISOString()` to both insert paths
-   - Imported generateId from supabase-helpers
-2. src/components/erp/UsersModule.tsx:
-   - Fixed addEmployeeMutation: added missing "Bearer " prefix to authorization header
-3. src/app/api/custom-roles/route.ts:
-   - Added createdAt to insert (defensive, for Supabase REST API compatibility)
-
-Root Causes:
-- The "unauthorized" error was most likely from the auth token not being properly sent
-- Non-ERP employee registration was broken due to missing id and updated_at on insert
-- The register endpoint had NO auth protection — anyone could create employees
-
-Stage Summary:
-- Files modified: auth/register/route.ts, UsersModule.tsx, custom-roles/route.ts
-- Security: Non-ERP employee creation now requires super_admin authentication
-- All inserts into users table now include explicit id and updated_at
-- Consistent Bearer prefix in all auth headers
----
-Task ID: 1
-Agent: Main
-Task: Add AI discrepancy analysis, auto-adjustment, root cause finding, and promo image generation to AI Chat Panel
-
-Work Log:
-- Read and analyzed entire project structure (AIChatPanel, AI chat route, financial-snapshot, transactions, finance/pools, cash-flow)
-- Created new API endpoint `/api/ai/discrepancy/route.ts` with 3 actions:
-  - `analyze`: Comprehensive discrepancy detection across pool balances, physical funds, transaction inconsistencies, payment mismatches, and receivable mismatches
-  - `adjust`: Auto-fix discrepancies by syncing pool balances, fixing transaction inconsistencies, and syncing receivables
-  - `root_cause`: AI-powered root cause analysis using LLM (z-ai-web-dev-sdk)
-- Created new API endpoint `/api/ai/promo-image/route.ts` for generating promotional product images using AI image generation
-- Enhanced AIChatPanel component with:
-  - New ChatMessage interface with imageUrl, actionType, actionData fields
-  - 4 new AI Action buttons: Analisa Selisih, Sesuaikan Selisih, Cari Penyebab, Gambar Promo
-  - handleAiAction() function for discrepancy analysis, adjustment, and root cause finding
-  - generatePromoImage() function for promo image generation
-  - Promo product selection UI with clickable product buttons
-  - Image display in chat with download capability
-  - Discrepancy action buttons (Sesuaikan Selisih, Cari Penyebab) shown after analysis
-  - Custom loading indicators for discrepancy and promo operations
-  - "promo [product name]" command handling in sendMessage
-  - Updated welcome message with AI Tools section
-
-Stage Summary:
-- New API: /api/ai/discrepancy (analyze, adjust, root_cause)
-- New API: /api/ai/promo-image (product promo image generation)
-- AIChatPanel now has 4 AI action buttons for financial discrepancy management
-- Promo image generation with product selection and download
-- All endpoints verified (405 on GET = correct POST-only)
-
-## [AI Features - AI Discrepancy Analyzer, Adjuster, Root Cause Finder, Promo Image Generator]
-
-### Date: $(date '+%Y-%m-%d %H:%M:%S')
-
-### Summary
-Added 4 new AI-powered features to the Razkindo ERP AI Chat Panel:
-
----
-
-### 1. Created `/api/ai/audit/route.ts` (NEW)
-**Deep Financial Audit Endpoint** (GET /api/ai/audit)
-
-- Super admin only, comprehensive discrepancy analysis
-- **Check 1**: Transaction consistency — `total === paid_amount + remaining_amount` (1 rupiah tolerance)
-- **Check 2**: Payment verification — `paid_amount === sum(payments.amount)` (1 rupiah tolerance)
-- **Check 3**: Receivable sync — receivables vs transaction payment_status
-- **Check 4**: Pool balance vs actual transaction sums (hpp_paid_balance, profit_paid_balance)
-- **Check 5**: Account balance health (negative bank/cashbox/courier balances)
-- **Check 6**: HPP/Profit field integrity
-- Returns discrepancies grouped by severity (critical, warning, info) with suggested fixes
-- Creates audit log entry
-
-### 2. Created `/api/ai/fix-discrepancy/route.ts` (NEW)
-**Fix Discrepancy Endpoint** (POST /api/ai/fix-discrepancy)
-
-- Super admin only, targeted per-transaction fixes
-- Supports fixing: paid_amount, remaining_amount, payment_status, hpp_paid, hpp_unpaid, profit_paid, profit_unpaid, status
-- Validates fix values and field constraints
-- Logs before/after snapshots for audit trail
-- Auto-syncs linked receivables when payment data changes
-- Returns complete before/after data comparison
-
-### 3. Enhanced `/api/ai/promo-image/route.ts` (MODIFIED)
-**Promo Image Generation** (POST /api/ai/promo-image)
-
-- Added batch generation support via `productIds` array with `promoType` parameter
-- Promo types: discount, bundle, new, flash_sale
-- Each type has specialized visual prompt with badges and stamps
-- Returns product-level results for batch operations
-- Added audit logging for image generation
-
-### 4. Enhanced `/api/ai/chat/route.ts` (MODIFIED)
-**AI Chat Intent Detection** 
-
-Added 4 new intent detectors:
-- `isAuditIntent()` — triggers deep audit via /api/ai/audit
-- `isFixIntent()` — runs audit + instructs LLM to recommend fixes
-- `isRootCauseIntent()` — runs audit + instructs LLM for root cause analysis
-- `isPromoIntent()` — fetches top products for promo UI
-
-Added to `isFinancialAnalysis()`:
-- Fix intent patterns: `perbaiki selisih`, `fix discrepancy`
-- Root cause patterns: `penyebab selisih`, `root cause`
-
-Enhanced system prompt with capabilities #9 (Analisa Selisih & Audit Data) and #10 (Generate Gambar Promo).
-
-### 5. Updated `AIChatPanel.tsx` (MODIFIED)
-**Frontend Quick Prompts & Handling**
-
-- Added 4 new quick prompts (super_admin only):
-  - 🔍 Cek selisih data
-  - 🛠️ Perbaiki selisih
-  - 🔎 Penyebab selisih
-  - 🎨 Buat gambar promo
-- Updated welcome message to mention "AI Discrepancy Tools" section
-- Added `isPromoIntent` handling in message response to store promo products for later `promo [number]` command
-- Updated client-side `isFinancialAnalysis()` detection to cover new patterns
-- Updated API response type to include `isPromoIntent` and `promoProducts`
-
----
-
-### Files Modified
-- `src/app/api/ai/audit/route.ts` — NEW
-- `src/app/api/ai/fix-discrepancy/route.ts` — NEW
-- `src/app/api/ai/promo-image/route.ts` — MODIFIED (batch support, promoType)
-- `src/app/api/ai/chat/route.ts` — MODIFIED (intent detection, audit context, capabilities)
-- `src/components/erp/AIChatPanel.tsx` — MODIFIED (quick prompts, welcome msg, promo handling)
-
----
-Task ID: 13
-Agent: Main Agent
-Task: Comprehensive bug check and fix for all finance/transaction modules and AI discrepancy routes
-
-Work Log:
-- Surveyed all finance/transaction/payment API routes (24 files), AI routes (11 files), and chat panel component
-- Found 3 critical column-naming bugs (paymentMethod/deliveryAddress in camelCase instead of snake_case for Supabase REST)
-- Found 8 missing updated_at in UPDATE operations across 5 files
-- Found 2 logic bugs in AI discrepancy/fix-discrepancy routes
-- Found 3 minor code quality issues in AI routes
-- Fixed all bugs: 0 TypeScript errors after fixes
-- Verified server running and healthy (HTTP 200)
-
-Stage Summary:
-- Fixed payments/route.ts: payment_method column name + 4x updated_at
-- Fixed transactions/route.ts: delivery_address + payment_method column names
-- Fixed cash-flow/route.ts: payment_method SELECT column
-- Fixed debts/[id]/payment/route.ts: added updated_at
-- Fixed receivables/sync/route.ts: 3x added updated_at
-- Fixed ai/fix-discrepancy/route.ts: beforeSnapshot snake_case mismatch (used raw data for field lookups)
-- Fixed ai/discrepancy/route.ts: double-update/double-count on receivables (else if pattern), added settings updated_at
-- Fixed ai/audit/route.ts: removed unused import, fixed cashbox unit type cast
-- Fixed ai/promo-image/route.ts: replaced local toCamelCase with shared import
-
----
-Task ID: 14
-Agent: Main Agent
-Task: Fix broken transaction creation caused by incorrect column naming revert
-
-Work Log:
-- User reported "tidak bisa melakukan transaksi" (cannot perform transactions)
-- Checked tx-error.log: found PGRST204 errors — "Could not find the 'delivery_address' column"
-- Root cause: Previous fix changed `deliveryAddress` → `delivery_address` in transactions INSERT, but the DB column is actually `deliveryAddress` (camelCase) because Prisma has no `@map()` directive for this field
-- Also reverted `paymentMethod` → `payment_method` in payments INSERT — same issue, Payment model has no `@map()` for `paymentMethod`
-- And reverted `payment_method` → `paymentMethod` in cash-flow SELECT for the payments table
-
-Key insight: The Prisma schema has INCONSISTENT @map() directives:
-  - Transaction.paymentMethod HAS @map("payment_method") → DB column = payment_method ✅
-  - Transaction.deliveryAddress has NO @map() → DB column = deliveryAddress (camelCase)
-  - Payment.paymentMethod has NO @map() → DB column = paymentMethod (camelCase)
-
-Stage Summary:
-- Reverted 3 incorrect column name changes from Task 13
-- payments/route.ts: paymentMethod (correct — Payment model has no @map)
-- transactions/route.ts: deliveryAddress (correct — no @map), paymentMethod in auto-payment insert (correct — Payment table)
-- cash-flow/route.ts: paymentMethod in SELECT (correct — Payment table column)
-- Transaction INSERT still uses payment_method (correct — Transaction model has @map)
-- TypeScript: 0 errors, Server: HTTP 200
+- Direct expense creation bypasses finance request approval workflow
+- 2-step workflow: Step 1 (HPP/Profit pool), Step 2 (Bank/Brankas physical)
+- Expenses are tracked as Transaction type='expense' with EXP- invoice prefix

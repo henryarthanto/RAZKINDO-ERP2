@@ -2,38 +2,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { enforceFinanceRole } from '@/lib/require-auth';
-import { createLog } from '@/lib/supabase-helpers';
+import { createLog, generateId } from '@/lib/supabase-helpers';
 
 // GET /api/finance/pools
 // Returns current pool balances for the 2-step finance workflow:
-// - hppPaidBalance: HPP Sudah Terbayar (cost recovery from customer payments)
-// - profitPaidBalance: Profit Sudah Terbayar (profit from customer payments)
-// - investorFund: Dana Lain-lain (investor, pinjaman, dll)
+// - hppPaidBalance: HPP Sudah Terbayar (cost recovery from customer payments) — from settings
+// - profitPaidBalance: Profit Sudah Terbayar (profit from customer payments) — from settings
+// - investorFund: Dana Lain-lain (investor, pinjaman, dll) — from settings
 // - totalPool: hppPaidBalance + profitPaidBalance + investorFund
-// - actualHppSum: SUM of hpp_portion from all payments (ground truth)
-// - actualProfitSum: SUM of profit_portion from all payments (ground truth)
+// - actualHppSum: SUM of hpp_portion from all sale payments (ground truth from DB)
+// - actualProfitSum: SUM of profit_portion from all sale payments (ground truth from DB)
 export async function GET(request: NextRequest) {
   try {
-    // Bug #1 FIX: Use verifyAuthUser (any auth'd user) instead of enforceFinanceRole
-    // The pool read-only data is useful for all roles (dashboard, etc.)
     const userId = await verifyAuthUser(request.headers.get('authorization'));
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // OPTIMIZATION: Use RPC instead of full table scan on payments table
-    const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
-    let actualHppSum = sumsData?.hppPaidTotal || 0;
-    let actualProfitSum = sumsData?.profitPaidTotal || 0;
-    if (sumsError) {
-      console.error('[POOL] RPC get_payment_pool_sums failed, falling back to direct query:', sumsError.message);
-      // Fallback: direct aggregate query (still better than full scan)
-      const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion');
-      actualHppSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
-      actualProfitSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
-    }
-
-    // Bug #2 FIX: Read pool balances from settings table
+    // Read pool balances from settings table
     const { data: settings } = await db
       .from('settings')
       .select('key, value')
@@ -45,29 +31,27 @@ export async function GET(request: NextRequest) {
 
     const getVal = (key: string) => {
       const s = settings?.find((s: any) => s.key === key);
-      return s ? (parseFloat(JSON.parse(s.value)) || 0) : 0;
+      if (!s) return 0;
+      try {
+        return parseFloat(JSON.parse(s.value)) || 0;
+      } catch {
+        return parseFloat(s.value) || 0;
+      }
     };
 
-    let hppPaidBalance = getVal('pool_hpp_paid_balance');
-    let profitPaidBalance = getVal('pool_profit_paid_balance');
+    const hppPaidBalance = getVal('pool_hpp_paid_balance');
+    const profitPaidBalance = getVal('pool_profit_paid_balance');
     const investorFund = getVal('pool_investor_fund');
 
-    // Bug #2 FIX: Auto-initialize pool balances from actual payment sums if they are zero
-    // This ensures first-time users see correct values without needing to manually sync
-    if (hppPaidBalance === 0 && profitPaidBalance === 0 && (actualHppSum > 0 || actualProfitSum > 0)) {
-      const roundedHpp = Math.round(actualHppSum);
-      const roundedProfit = Math.round(actualProfitSum);
-      await db.from('settings').upsert(
-        { key: 'pool_hpp_paid_balance', value: JSON.stringify(roundedHpp) },
-        { onConflict: 'key' }
-      );
-      await db.from('settings').upsert(
-        { key: 'pool_profit_paid_balance', value: JSON.stringify(roundedProfit) },
-        { onConflict: 'key' }
-      );
-      console.log(`[POOL] Auto-initialized pool balances from actual sums: HPP=${roundedHpp}, Profit=${roundedProfit}`);
-      hppPaidBalance = roundedHpp;
-      profitPaidBalance = roundedProfit;
+    // Get actual payment sums from DB (ground truth) via Prisma RPC
+    const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
+    let actualHppSum = sumsData?.hppPaidTotal || 0;
+    let actualProfitSum = sumsData?.profitPaidTotal || 0;
+    if (sumsError) {
+      console.error('[POOL] RPC get_payment_pool_sums failed, falling back to direct query:', sumsError.message);
+      const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion');
+      actualHppSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
+      actualProfitSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
     }
 
     return NextResponse.json({
@@ -86,10 +70,7 @@ export async function GET(request: NextRequest) {
 }
 
 // PUT /api/finance/pools
-// Manually update pool balances:
-// - HPP + Profit + Dana Lain-lain = Total Pool
-// - Dana Lain-lain bersifat independent (additive, tidak dikurangi dari fisik)
-// - HPP + Profit dapat di-auto-kalkulasi dari totalPool - investorFund
+// Manually update pool balances
 export async function PUT(request: NextRequest) {
   try {
     const auth = await enforceFinanceRole(request);
@@ -116,13 +97,12 @@ export async function PUT(request: NextRequest) {
       investorFund = Math.max(0, Math.round(Number(investorFund)));
     }
 
-    // If totalPhysical is provided, HPP + Profit + Dana Lain-lain = totalPhysical
-    // Auto-calculate the missing HPP or Profit value
+    const now = new Date().toISOString();
+
+    // If totalPhysical is provided, auto-calculate HPP or Profit
     if (totalPhysical !== undefined && totalPhysical !== null) {
       const totalPhysicalNum = Math.round(Number(totalPhysical));
       const investorSafe = Math.max(0, investorFund);
-
-      // Total for HPP+Profit = totalPhysical - investorFund
       const poolFromOps = Math.max(0, totalPhysicalNum - investorSafe);
 
       let finalHpp: number;
@@ -145,14 +125,12 @@ export async function PUT(request: NextRequest) {
         }
         finalHpp = Math.max(0, Math.round(poolFromOps - finalProfit));
       } else {
-        // No HPP or Profit provided — only update investor fund
         const { data: currentHpp } = await db.from('settings').select('value').eq('key', 'pool_hpp_paid_balance').maybeSingle();
         const { data: currentProfit } = await db.from('settings').select('value').eq('key', 'pool_profit_paid_balance').maybeSingle();
         finalHpp = currentHpp ? (parseFloat(JSON.parse(currentHpp.value)) || 0) : 0;
         finalProfit = currentProfit ? (parseFloat(JSON.parse(currentProfit.value)) || 0) : 0;
       }
 
-      // Validate total doesn't exceed physical
       const totalPool = finalHpp + finalProfit + investorSafe;
       if (totalPool > totalPhysicalNum) {
         return NextResponse.json({
@@ -160,21 +138,20 @@ export async function PUT(request: NextRequest) {
         }, { status: 400 });
       }
 
-      // Update all three settings
+      // Update all three settings with upsert (include id for new rows + updated_at)
       await db.from('settings').upsert(
-        { key: 'pool_hpp_paid_balance', value: JSON.stringify(finalHpp) },
+        { key: 'pool_hpp_paid_balance', value: JSON.stringify(finalHpp), updated_at: now },
         { onConflict: 'key' }
       );
       await db.from('settings').upsert(
-        { key: 'pool_profit_paid_balance', value: JSON.stringify(finalProfit) },
+        { key: 'pool_profit_paid_balance', value: JSON.stringify(finalProfit), updated_at: now },
         { onConflict: 'key' }
       );
       await db.from('settings').upsert(
-        { key: 'pool_investor_fund', value: JSON.stringify(investorSafe) },
+        { key: 'pool_investor_fund', value: JSON.stringify(investorSafe), updated_at: now },
         { onConflict: 'key' }
       );
 
-      // Log
       try {
         createLog(db, {
           type: 'audit',
@@ -195,14 +172,13 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    // If only investorFund is provided (standalone investor fund update)
+    // Standalone investor fund update
     if (investorFundInput !== undefined && hppPaidBalance === undefined && profitPaidBalance === undefined) {
       await db.from('settings').upsert(
-        { key: 'pool_investor_fund', value: JSON.stringify(investorFund) },
+        { key: 'pool_investor_fund', value: JSON.stringify(investorFund), updated_at: now },
         { onConflict: 'key' }
       );
 
-      // Read current HPP + Profit for total
       const { data: currentHpp } = await db.from('settings').select('value').eq('key', 'pool_hpp_paid_balance').maybeSingle();
       const { data: currentProfit } = await db.from('settings').select('value').eq('key', 'pool_profit_paid_balance').maybeSingle();
       const currentHppVal = currentHpp ? (parseFloat(JSON.parse(currentHpp.value)) || 0) : 0;
@@ -237,8 +213,7 @@ export async function PUT(request: NextRequest) {
 }
 
 // POST /api/finance/pools
-// Sync pool balances from actual payment sums (auto-sync)
-// Recalculates hppPaidBalance and profitPaidBalance from SUM of payments
+// Actions: sync_from_payments, reset_to_zero
 export async function POST(request: NextRequest) {
   try {
     const auth = await enforceFinanceRole(request);
@@ -246,9 +221,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { action } = body;
+    const now = new Date().toISOString();
 
     if (action === 'sync_from_payments') {
-      // OPTIMIZATION: Use RPC instead of full table scan on payments table
+      // Sync pool balances from actual payment sums
       const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
       let newHpp = sumsData?.hppPaidTotal || 0;
       let newProfit = sumsData?.profitPaidTotal || 0;
@@ -262,7 +238,6 @@ export async function POST(request: NextRequest) {
       const roundedHpp = Math.round(newHpp);
       const roundedProfit = Math.round(newProfit);
 
-      // Read current investor fund
       const { data: current } = await db
         .from('settings')
         .select('value')
@@ -270,19 +245,17 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
       const investorFund = current ? (parseFloat(JSON.parse(current.value)) || 0) : 0;
 
-      // Update HPP and Profit pool balances
       await db.from('settings').upsert(
-        { key: 'pool_hpp_paid_balance', value: JSON.stringify(roundedHpp) },
+        { key: 'pool_hpp_paid_balance', value: JSON.stringify(roundedHpp), updated_at: now },
         { onConflict: 'key' }
       );
       await db.from('settings').upsert(
-        { key: 'pool_profit_paid_balance', value: JSON.stringify(roundedProfit) },
+        { key: 'pool_profit_paid_balance', value: JSON.stringify(roundedProfit), updated_at: now },
         { onConflict: 'key' }
       );
 
       const totalPool = roundedHpp + roundedProfit + investorFund;
 
-      // Log
       try {
         createLog(db, {
           type: 'audit',
@@ -303,9 +276,44 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: 'Action tidak valid' }, { status: 400 });
+    if (action === 'reset_to_zero') {
+      // Reset all pool balances to 0
+      await db.from('settings').upsert(
+        { key: 'pool_hpp_paid_balance', value: JSON.stringify(0), updated_at: now },
+        { onConflict: 'key' }
+      );
+      await db.from('settings').upsert(
+        { key: 'pool_profit_paid_balance', value: JSON.stringify(0), updated_at: now },
+        { onConflict: 'key' }
+      );
+      await db.from('settings').upsert(
+        { key: 'pool_investor_fund', value: JSON.stringify(0), updated_at: now },
+        { onConflict: 'key' }
+      );
+
+      try {
+        createLog(db, {
+          type: 'audit',
+          action: 'pool_reset_to_zero',
+          entity: 'settings',
+          entityId: 'pool_hpp_paid_balance',
+          userId: auth.userId,
+          message: 'Pool dana direset ke 0'
+        });
+      } catch { /* ignore */ }
+
+      return NextResponse.json({
+        hppPaidBalance: 0,
+        profitPaidBalance: 0,
+        investorFund: 0,
+        totalPool: 0,
+        message: 'Pool dana berhasil direset ke 0'
+      });
+    }
+
+    return NextResponse.json({ error: 'Action tidak valid. Gunakan: sync_from_payments atau reset_to_zero' }, { status: 400 });
   } catch (error) {
-    console.error('Sync pool balances error:', error);
+    console.error('Pool action error:', error);
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }

@@ -539,35 +539,29 @@ const rpcHandlers: Record<string, RpcFunction> = {
 
   async get_payment_pool_sums(_params) {
     try {
-      // Get all relevant settings for pool balances
-      const settings = await prisma.setting.findMany({
+      // CRITICAL FIX: Query actual payments table for ground truth,
+      // NOT the settings table (which would be self-referencing).
+      // This provides the actualHppSum/actualProfitSum comparison values.
+      const result = await prisma.payment.aggregate({
+        _sum: {
+          hppPortion: true,
+          profitPortion: true,
+        },
         where: {
-          key: {
-            in: [
-              'pool_hpp_paid_balance',
-              'pool_profit_paid_balance',
-              'pool_hpp_hand_balance',
-              'pool_profit_hand_balance',
-            ],
+          transaction: {
+            type: 'sale',
           },
         },
       });
 
-      const sums: Record<string, number> = {};
-      for (const s of settings) {
-        try {
-          sums[s.key] = parseFloat(s.value) || 0;
-        } catch {
-          sums[s.key] = 0;
-        }
-      }
+      const hppPaidTotal = result._sum.hppPortion || 0;
+      const profitPaidTotal = result._sum.profitPortion || 0;
 
       return {
         data: {
-          hpp_paid: sums['pool_hpp_paid_balance'] || 0,
-          profit_paid: sums['pool_profit_paid_balance'] || 0,
-          hpp_hand: sums['pool_hpp_hand_balance'] || 0,
-          profit_hand: sums['pool_profit_hand_balance'] || 0,
+          hppPaidTotal,
+          profitPaidTotal,
+          totalPaid: hppPaidTotal + profitPaidTotal,
         },
         error: null,
       };
