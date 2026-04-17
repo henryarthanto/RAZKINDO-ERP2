@@ -28,7 +28,7 @@ export const SUPABASE_URL: string = process.env.NEXT_PUBLIC_SUPABASE_URL || 'htt
 export const SUPABASE_ANON_KEY: string = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
 /** Supabase service role key — bypasses all RLS policies, server-side only */
-export const SUPABASE_SERVICE_KEY: string = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+export const SUPABASE_SERVICE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
 // ─────────────────────────────────────────────────────────────────────
 // CLIENT SINGLETON
