@@ -516,9 +516,7 @@ export async function POST(request: NextRequest) {
 
         // Step 1: Insert transaction
         txSteps.push(createStep('insert-transaction', async () => {
-          const { data: created, error: insertError } = await db
-            .from('transactions')
-            .insert({
+          const insertData = {
               id: transactionId,
               type: data.type,
               invoice_no: invoiceNo,
@@ -544,8 +542,13 @@ export async function POST(request: NextRequest) {
               deliveryAddress: data.deliveryAddress,
               delivered_at: isSelfDelivered ? new Date().toISOString() : null,
               transaction_date: txDate.toISOString(),
-              updated_at: new Date().toISOString()
-            })
+              updated_at: new Date().toISOString(),
+            };
+          console.log('[TX-DEBUG] Insert data keys:', Object.keys(insertData).join(', '));
+          console.log('[TX-DEBUG] updated_at value:', insertData.updated_at);
+          const { data: created, error: insertError } = await db
+            .from('transactions')
+            .insert(insertData)
             .select(`
               *,
               items:transaction_items(*, product:products(unit, subUnit)),
