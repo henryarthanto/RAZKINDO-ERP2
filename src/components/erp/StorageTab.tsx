@@ -611,10 +611,10 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
           {/* Supabase Health Details */}
           {supabaseHealth && (
             <div className="space-y-2 p-3 rounded-lg border bg-muted/20">
-              <p className="text-xs font-medium flex items-center gap-1.5">
-                <div className={cn("w-2 h-2 rounded-full", sbStatusBg)} />
+              <div className="text-xs font-medium flex items-center gap-1.5">
+                <span className={cn("w-2 h-2 rounded-full inline-block", sbStatusBg)} />
                 Supabase Health Check — {sbStatusLabel}
-              </p>
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {supabaseHealth.checks.map((check) => (
                   <div key={check.name} className="p-2 rounded-lg bg-background border text-center">
