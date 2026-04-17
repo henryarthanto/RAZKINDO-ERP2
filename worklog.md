@@ -409,3 +409,23 @@ Stage Summary:
 - No new bugs found — lint clean, TypeScript clean, build succeeds
 - Courier cash flow is architecturally sound and correctly implemented
 - Server running healthy on port 3000
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix Pool Dana sync making funds 0 - add preview dialog, preventive measures, and discrepancy warnings
+
+Work Log:
+- Investigated root cause: sync_from_payments action calls get_payment_pool_sums which ONLY sums payments with cashBoxId/bankAccountId. If payments come from courier cash (no deposit), result = 0 → pool overwritten to 0
+- API already had preview_sync and safety blocks from previous session, but frontend was missing the confirmation dialog
+- Added Sync Preview Confirmation Dialog in FinanceModule.tsx showing: before/after comparison, warnings, deposited vs courier breakdown, and contextual action buttons
+- Replaced window.confirm() for Reset 0 with proper AlertDialog showing current pool value
+- Added courier cash pending info in the reconciliation section
+- Updated syncPoolsMutation error handler to show preview data when sync is blocked by safety checks
+- Added missing AlertDialogTrigger import
+
+Stage Summary:
+- Build: PASS (103 routes, 0 TypeScript errors)
+- Lint: PASS (0 errors)
+- Files modified: src/components/erp/FinanceModule.tsx
+- Key improvement: Sync button now shows preview dialog first → user must confirm after seeing before/after values and warnings
+- Preventive measures: API blocks sync-to-zero, blocks >80% reduction, and blocks both-HPP-and-Profit-to-zero without force=true

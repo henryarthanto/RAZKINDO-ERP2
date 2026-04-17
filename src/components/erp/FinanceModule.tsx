@@ -61,6 +61,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -559,19 +560,49 @@ export default function FinanceModule() {
     }
   });
 
-  const syncPoolsMutation = useMutation({
+  // Sync preview state
+  const [syncPreviewData, setSyncPreviewData] = useState<any>(null);
+  const [showSyncPreview, setShowSyncPreview] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  const previewSyncMutation = useMutation({
     mutationFn: async () => {
       return apiFetch('/api/finance/pools', {
         method: 'POST',
-        body: JSON.stringify({ action: 'sync_from_payments' })
+        body: JSON.stringify({ action: 'preview_sync' })
+      });
+    },
+    onSuccess: (data: any) => {
+      setSyncPreviewData(data);
+      setShowSyncPreview(true);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    }
+  });
+
+  const syncPoolsMutation = useMutation({
+    mutationFn: async (force?: boolean) => {
+      return apiFetch('/api/finance/pools', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'sync_from_payments', force: force || false })
       });
     },
     onSuccess: (data: any) => {
       toast.success(data.message || 'Pool dana berhasil disinkronkan');
+      setShowSyncPreview(false);
+      setSyncPreviewData(null);
       queryClient.invalidateQueries({ queryKey: ['finance-pools'] });
     },
-    onError: (err: Error) => {
-      toast.error(err.message);
+    onError: (err: any) => {
+      // If sync was blocked by safety check, show the preview data from the error
+      if (err?.details?.preview) {
+        setSyncPreviewData(err.details.preview);
+        setShowSyncPreview(true);
+        toast.error(err.message || 'Sinkronisasi diblokir oleh sistem', { duration: 5000 });
+      } else {
+        toast.error(err.message || 'Gagal menyinkronkan pool dana');
+      }
     }
   });
 
@@ -722,32 +753,70 @@ export default function FinanceModule() {
               </div>
             </div>
             <div className="flex items-center gap-1.5">
-              {/* Sync from payments button */}
+              {/* Preview Sync button — shows what sync would change before applying */}
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs gap-1"
-                onClick={() => syncPoolsMutation.mutate()}
-                disabled={syncPoolsMutation.isPending}
+                onClick={() => previewSyncMutation.mutate()}
+                disabled={previewSyncMutation.isPending || syncPoolsMutation.isPending}
+              >
+                <Info className={`w-3.5 h-3.5 ${previewSyncMutation.isPending ? 'animate-pulse' : ''}`} />
+                <span className="hidden sm:inline">Preview</span>
+              </Button>
+              {/* Sync from payments button — now requires confirmation via preview */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                onClick={() => {
+                  // First show preview, then user confirms in the dialog
+                  previewSyncMutation.mutate();
+                }}
+                disabled={syncPoolsMutation.isPending || previewSyncMutation.isPending}
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${syncPoolsMutation.isPending ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">Sinkron</span>
               </Button>
               {/* Reset to zero button */}
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                onClick={() => {
-                  if (confirm('Reset semua pool dana ke 0?')) {
-                    resetPoolsMutation.mutate();
-                  }
-                }}
-                disabled={resetPoolsMutation.isPending}
-              >
-                <RotateCcw className={`w-3.5 h-3.5 ${resetPoolsMutation.isPending ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">Reset 0</span>
-              </Button>
+              <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                    disabled={resetPoolsMutation.isPending}
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${resetPoolsMutation.isPending ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">Reset 0</span>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Reset Pool Dana ke 0?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Tindakan ini akan mengatur semua pool dana (HPP, Profit, dan Dana Lain-lain) menjadi 0.
+                      {fundBalances.totalPool > 0 && (
+                        <span className="block mt-2 font-semibold text-red-600">
+                          Total pool saat ini: {formatCurrency(fundBalances.totalPool)}
+                        </span>
+                      )}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
+                    <AlertDialogCancel>Batal</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => {
+                        resetPoolsMutation.mutate();
+                        setShowResetConfirm(false);
+                      }}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      Ya, Reset ke 0
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               <Dialog open={showPoolDialog} onOpenChange={(open) => { setShowPoolDialog(open); if (open) setPoolFormKey(k => k + 1); }}>
                 <DialogTrigger asChild>
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1">
@@ -774,6 +843,185 @@ export default function FinanceModule() {
                     onSave={(data) => updatePoolsMutation.mutate(data)}
                     isSaving={updatePoolsMutation.isPending}
                   />
+                </DialogContent>
+              </Dialog>
+
+              {/* Sync Preview Dialog */}
+              <Dialog open={showSyncPreview} onOpenChange={setShowSyncPreview}>
+                <DialogContent className="sm:max-w-lg w-[calc(100%-2rem)] max-h-[85dvh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <RefreshCw className="w-5 h-5" />
+                      Preview Sinkronisasi Pool Dana
+                    </DialogTitle>
+                    <DialogDescription>
+                      Perubahan yang akan terjadi jika disinkronkan dari data pembayaran
+                    </DialogDescription>
+                  </DialogHeader>
+                  {syncPreviewData ? (
+                    <div className="space-y-4">
+                      {/* Current vs New values */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 rounded-lg bg-muted">
+                          <p className="text-[10px] text-muted-foreground mb-1">HPP Saat Ini</p>
+                          <p className="text-lg font-bold text-purple-700">{formatCurrency(syncPreviewData.currentHpp)}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">→ Setelah Sync</p>
+                          <p className={`text-lg font-bold ${syncPreviewData.currentHpp !== syncPreviewData.newHpp ? 'text-orange-600' : 'text-purple-700'}`}>
+                            {formatCurrency(syncPreviewData.newHpp)}
+                            {syncPreviewData.currentHpp !== syncPreviewData.newHpp && (
+                              <span className="text-xs ml-1">
+                                ({syncPreviewData.newHpp - syncPreviewData.currentHpp > 0 ? '+' : ''}{(syncPreviewData.newHpp - syncPreviewData.currentHpp).toLocaleString('id-ID')})
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted">
+                          <p className="text-[10px] text-muted-foreground mb-1">Profit Saat Ini</p>
+                          <p className="text-lg font-bold text-teal-700">{formatCurrency(syncPreviewData.currentProfit)}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">→ Setelah Sync</p>
+                          <p className={`text-lg font-bold ${syncPreviewData.currentProfit !== syncPreviewData.newProfit ? 'text-orange-600' : 'text-teal-700'}`}>
+                            {formatCurrency(syncPreviewData.newProfit)}
+                            {syncPreviewData.currentProfit !== syncPreviewData.newProfit && (
+                              <span className="text-xs ml-1">
+                                ({syncPreviewData.newProfit - syncPreviewData.currentProfit > 0 ? '+' : ''}{(syncPreviewData.newProfit - syncPreviewData.currentProfit).toLocaleString('id-ID')})
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Total Pool comparison */}
+                      <div className={`p-3 rounded-lg border-2 ${syncPreviewData.wouldZero || syncPreviewData.drasticChange ? 'border-red-300 bg-red-50 dark:bg-red-950/30' : syncPreviewData.changes?.length > 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30' : 'border-green-300 bg-green-50 dark:bg-green-950/30'}`}>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-semibold">Total Pool</span>
+                          <div className="text-right">
+                            <span className="text-sm text-muted-foreground">{formatCurrency(syncPreviewData.currentTotalPool)}</span>
+                            <ArrowRight className="w-3 h-3 inline mx-1" />
+                            <span className="text-sm font-bold">{formatCurrency(syncPreviewData.newTotalPool)}</span>
+                          </div>
+                        </div>
+                        {syncPreviewData.currentTotalPool > 0 && syncPreviewData.newTotalPool !== syncPreviewData.currentTotalPool && (
+                          <div className="text-xs text-muted-foreground">
+                            Perubahan: {syncPreviewData.newTotalPool - syncPreviewData.currentTotalPool > 0 ? '+' : ''}{(syncPreviewData.newTotalPool - syncPreviewData.currentTotalPool).toLocaleString('id-ID')} ({((syncPreviewData.newTotalPool - syncPreviewData.currentTotalPool) / syncPreviewData.currentTotalPool * 100).toFixed(1)}%)
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Courier Pending Info */}
+                      {(syncPreviewData.courierHppPending > 0 || syncPreviewData.courierProfitPending > 0) && (
+                        <div className="p-3 rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800">
+                          <p className="text-xs font-semibold text-orange-700 dark:text-orange-300 mb-1 flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            Dana di Kurir (Belum Disetor)
+                          </p>
+                          <div className="text-xs text-orange-600 dark:text-orange-400 space-y-0.5">
+                            <p>HPP Pending: {formatCurrency(syncPreviewData.courierHppPending)}</p>
+                            <p>Profit Pending: {formatCurrency(syncPreviewData.courierProfitPending)}</p>
+                            <p className="font-semibold mt-1">Total dengan kurir: {formatCurrency(syncPreviewData.totalWithCourier)}</p>
+                          </div>
+                          <p className="text-[10px] text-orange-500 mt-1">Dana ini akan masuk ke pool SETELAH kurir menyetor ke brankas.</p>
+                        </div>
+                      )}
+
+                      {/* Payment counts */}
+                      <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                        <p className="font-semibold mb-0.5">Data Pembayaran:</p>
+                        <p>Total pembayaran: {syncPreviewData.totalPaymentsCount} | Masuk brankas/bank: {syncPreviewData.brankasBankPaymentsCount}</p>
+                        {syncPreviewData.totalPaymentsCount > 0 && syncPreviewData.brankasBankPaymentsCount === 0 && (
+                          <p className="text-red-600 font-semibold mt-1">🚨 Tidak ada pembayaran yang masuk ke brankas/bank!</p>
+                        )}
+                      </div>
+
+                      {/* Changes list */}
+                      {syncPreviewData.changes?.length > 0 && (
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold">Perubahan:</p>
+                          {syncPreviewData.changes.map((change: any, idx: number) => (
+                            <div key={idx} className="flex items-center justify-between p-2 rounded bg-muted text-xs">
+                              <span>{change.field}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground">{formatCurrency(change.from)}</span>
+                                <ArrowRight className="w-3 h-3" />
+                                <span className="font-semibold">{formatCurrency(change.to)}</span>
+                                <span className={`text-[10px] px-1 py-0.5 rounded ${change.delta > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                  {change.delta > 0 ? '+' : ''}{change.delta.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Warnings */}
+                      {syncPreviewData.warnings?.length > 0 && (
+                        <div className="p-3 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 space-y-1">
+                          <p className="text-xs font-semibold text-red-700 dark:text-red-300 flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5" /> Peringatan
+                          </p>
+                          {syncPreviewData.warnings.map((w: string, idx: number) => (
+                            <p key={idx} className="text-xs text-red-600 dark:text-red-400">{w}</p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
+                          disabled={syncPoolsMutation.isPending}
+                        >
+                          Batal
+                        </Button>
+                        {syncPreviewData.isSafe ? (
+                          <Button
+                            className="flex-1 bg-purple-600 hover:bg-purple-700"
+                            onClick={() => syncPoolsMutation.mutate(false)}
+                            disabled={syncPoolsMutation.isPending}
+                          >
+                            {syncPoolsMutation.isPending ? 'Menyinkronkan...' : 'Konfirmasi Sinkronisasi'}
+                          </Button>
+                        ) : (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                className="flex-1 bg-red-600 hover:bg-red-700"
+                                disabled={syncPoolsMutation.isPending}
+                              >
+                                <AlertTriangle className="w-4 h-4 mr-1" />
+                                Paksa Sinkronisasi
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>⚠️ Konfirmasi Paksa Sinkronisasi</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Sinkronisasi ini akan membuat perubahan besar pada pool dana.
+                                  {(syncPreviewData.wouldZero || syncPreviewData.drasticChange) && ' Total pool bisa menjadi 0 atau berkurang drastis.'}
+                                  Ini biasanya terjadi karena data pembayaran ke brankas/bank belum lengkap.
+                                  Yakin ingin memaksa sinkronisasi?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Batal</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-red-600 hover:bg-red-700"
+                                  onClick={() => syncPoolsMutation.mutate(true)}
+                                >
+                                  Ya, Paksa Sync
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center p-8">
+                      <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
                 </DialogContent>
               </Dialog>
             </div>
@@ -823,7 +1071,7 @@ export default function FinanceModule() {
             </div>
           </div>
 
-          {/* Reconciliation Info: Pool vs Physical vs Actual Payments */}
+          {/* Reconciliation Info: Pool vs Physical vs Actual Payments + Courier Pending */}
           <div className={`mt-3 p-2.5 rounded-lg text-xs space-y-1.5 ${
             fundBalances.poolDiff !== 0 || fundBalances.hppDiff !== 0 || fundBalances.profitDiff !== 0
               ? 'bg-red-50 border border-red-200 dark:bg-red-950/40 dark:border-red-800'
@@ -860,6 +1108,12 @@ export default function FinanceModule() {
                   Pool ({formatCurrency(fundBalances.totalPool)}) vs Dana Fisik ({formatCurrency(fundBalances.totalFunds)})
                   {fundBalances.investorFund > 0 && ` — Dana Lain-lain: ${formatCurrency(fundBalances.investorFund)}`}
                 </div>
+                {/* Show courier cash pending as additional context */}
+                {(fundBalances.totalWithCouriers > 0) && (
+                  <div className="text-[10px] text-orange-600 dark:text-orange-400 pt-0.5 border-t border-orange-200 dark:border-orange-800 mt-1">
+                    📦 Dana di kurir: {formatCurrency(fundBalances.totalWithCouriers)} — belum masuk pool (akan masuk saat kurir setor ke brankas)
+                  </div>
+                )}
               </>
             ) : (
               <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-300">
@@ -871,6 +1125,210 @@ export default function FinanceModule() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Sync Preview Confirmation Dialog */}
+      <Dialog open={showSyncPreview} onOpenChange={(open) => { setShowSyncPreview(open); if (!open) setSyncPreviewData(null); }}>
+        <DialogContent className="sm:max-w-lg w-[calc(100%-2rem)] max-h-[85dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="w-5 h-5" />
+              Preview Sinkronisasi Pool Dana
+            </DialogTitle>
+            <DialogDescription>
+              Periksa perubahan sebelum menyinkronkan pool dana dari data pembayaran
+            </DialogDescription>
+          </DialogHeader>
+
+          {syncPreviewData && (
+            <div className="space-y-4">
+              {/* Warnings */}
+              {syncPreviewData.warnings && syncPreviewData.warnings.length > 0 && (
+                <div className="space-y-2">
+                  {syncPreviewData.warnings.map((w: string, i: number) => (
+                    <div key={i} className={`p-2.5 rounded-lg text-xs border ${
+                      w.includes('⚠️') || w.includes('🚨') || w.includes('PERINGATAN') || w.includes('penurunan')
+                        ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-800 dark:text-red-300'
+                        : 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
+                    }`}>
+                      <AlertTriangle className="w-3.5 h-3.5 inline mr-1 shrink-0" />
+                      {w}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Before vs After comparison */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* BEFORE */}
+                <div className="p-3 rounded-lg bg-muted border">
+                  <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Sebelum (Sekarang)</p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">HPP:</span>
+                      <span className="font-semibold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.currentHpp)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Profit:</span>
+                      <span className="font-semibold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.currentProfit)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Lain-lain:</span>
+                      <span className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(syncPreviewData.currentInvestorFund)}</span>
+                    </div>
+                    <div className="border-t pt-1 flex justify-between font-bold">
+                      <span>Total Pool:</span>
+                      <span className="text-emerald-700 dark:text-emerald-300">{formatCurrency(syncPreviewData.currentTotalPool)}</span>
+                    </div>
+                  </div>
+                </div>
+                {/* AFTER */}
+                <div className={`p-3 rounded-lg border ${
+                  syncPreviewData.wouldZero
+                    ? 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-800'
+                    : syncPreviewData.drasticChange
+                      ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-800'
+                      : 'bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-800'
+                }`}>
+                  <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Sesudah (Hasil Sync)</p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">HPP:</span>
+                      <div className="text-right">
+                        <span className="font-semibold text-purple-700 dark:text-purple-300">{formatCurrency(syncPreviewData.newHpp)}</span>
+                        {syncPreviewData.changes?.some((c: any) => c.field === 'HPP Terbayar') && (
+                          <ArrowDownLeft className="w-3 h-3 text-red-500 inline ml-1" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Profit:</span>
+                      <div className="text-right">
+                        <span className="font-semibold text-teal-700 dark:text-teal-300">{formatCurrency(syncPreviewData.newProfit)}</span>
+                        {syncPreviewData.changes?.some((c: any) => c.field === 'Profit Terbayar') && (
+                          <ArrowDownLeft className="w-3 h-3 text-red-500 inline ml-1" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Lain-lain:</span>
+                      <span className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(syncPreviewData.currentInvestorFund)}</span>
+                    </div>
+                    <div className="border-t pt-1 flex justify-between font-bold">
+                      <span>Total Pool:</span>
+                      <span className="text-emerald-700 dark:text-emerald-300">{formatCurrency(syncPreviewData.newTotalPool)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Breakdown: deposited vs courier */}
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 text-xs space-y-2">
+                <p className="font-semibold text-blue-700 dark:text-blue-300">
+                  📊 Rincian Sumber Data
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">Terdeposit ke Brankas/Bank</p>
+                    <p className="font-semibold">HPP: {formatCurrency(syncPreviewData.newHpp)}</p>
+                    <p className="font-semibold">Profit: {formatCurrency(syncPreviewData.newProfit)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      ({syncPreviewData.brankasBankPaymentsCount || 0} dari {syncPreviewData.totalPaymentsCount || 0} pembayaran)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">Masih di Kurir (Pending)</p>
+                    <p className="font-semibold text-orange-700 dark:text-orange-300">HPP: {formatCurrency(syncPreviewData.courierHppPending || 0)}</p>
+                    <p className="font-semibold text-orange-700 dark:text-orange-300">Profit: {formatCurrency(syncPreviewData.courierProfitPending || 0)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      (akan masuk pool saat kurir setor)
+                    </p>
+                  </div>
+                </div>
+                {syncPreviewData.totalWithCourier > 0 && (
+                  <div className="border-t border-blue-200 dark:border-blue-800 pt-1.5 text-[10px]">
+                    <span className="text-muted-foreground">Total dengan kurir:</span>{' '}
+                    <span className="font-semibold text-blue-700 dark:text-blue-300">{formatCurrency(syncPreviewData.totalWithCourier)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Changes detail */}
+              {syncPreviewData.changes && syncPreviewData.changes.length > 0 && (
+                <div className="p-3 rounded-lg bg-muted text-xs space-y-1.5">
+                  <p className="font-semibold">Perubahan:</p>
+                  {syncPreviewData.changes.map((c: any, i: number) => (
+                    <div key={i} className="flex justify-between items-center">
+                      <span className="text-muted-foreground">{c.field}:</span>
+                      <span className="font-mono">
+                        {formatCurrency(c.from)} → {formatCurrency(c.to)}
+                        <span className={`ml-1.5 ${c.delta > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          ({c.delta > 0 ? '+' : ''}{formatCurrency(c.delta)})
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex flex-col gap-2">
+                {syncPreviewData.wouldZero || syncPreviewData.drasticChange ? (
+                  <>
+                    <Button
+                      onClick={() => syncPoolsMutation.mutate(true)}
+                      disabled={syncPoolsMutation.isPending}
+                      className="w-full bg-red-600 hover:bg-red-700"
+                    >
+                      {syncPoolsMutation.isPending ? 'Menyinkronkan...' : '⚠️ Paksa Sinkron (Tetap 0)'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
+                      className="w-full"
+                    >
+                      Batal — Lebih Aman Gunakan Update Manual
+                    </Button>
+                  </>
+                ) : syncPreviewData.warnings && syncPreviewData.warnings.length > 0 ? (
+                  <>
+                    <Button
+                      onClick={() => syncPoolsMutation.mutate(false)}
+                      disabled={syncPoolsMutation.isPending}
+                      className="w-full bg-amber-600 hover:bg-amber-700"
+                    >
+                      {syncPoolsMutation.isPending ? 'Menyinkronkan...' : '⚠️ Lanjutkan Sinkron (Ada Peringatan)'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
+                      className="w-full"
+                    >
+                      Batal
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      onClick={() => syncPoolsMutation.mutate(false)}
+                      disabled={syncPoolsMutation.isPending}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      {syncPoolsMutation.isPending ? 'Menyinkronkan...' : '✓ Sinkronkan Sekarang'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}
+                      className="w-full"
+                    >
+                      Batal
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       
       {/* Pending Requests Alert */}
       {pendingRequests.length > 0 && (

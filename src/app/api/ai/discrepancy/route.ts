@@ -230,7 +230,7 @@ async function adjustDiscrepancies(userId: string) {
   const fixes: string[] = [];
   const errors: string[] = [];
 
-  // 1. Sync pool balances from actual payment sums
+  // 1. Sync pool balances from actual payment sums — WITH SAFETY CHECKS
   const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
   let actualHppSum = sumsData?.hppPaidTotal || 0;
   let actualProfitSum = sumsData?.profitPaidTotal || 0;
@@ -243,18 +243,42 @@ async function adjustDiscrepancies(userId: string) {
   const roundedHpp = Math.round(actualHppSum);
   const roundedProfit = Math.round(actualProfitSum);
 
-  // Safe upsert: check-existing → update/insert (Supabase REST doesn't auto-generate id)
-  for (const [key, val] of [['pool_hpp_paid_balance', roundedHpp], ['pool_profit_paid_balance', roundedProfit]] as [string, number][]) {
-    const now = new Date().toISOString();
-    const { data: existing } = await db.from('settings').select('key').eq('key', key).maybeSingle();
-    if (existing) {
-      await db.from('settings').update({ value: JSON.stringify(val), updated_at: now }).eq('key', key);
-    } else {
-      await db.from('settings').insert({ id: generateId(), key, value: JSON.stringify(val), created_at: now, updated_at: now });
+  // SAFETY: Get current pool balances to validate the change
+  const { data: currentPoolSettings } = await db
+    .from('settings')
+    .select('key, value')
+    .in('key', ['pool_hpp_paid_balance', 'pool_profit_paid_balance', 'pool_investor_fund']);
+  const getCurrentVal = (key: string) => {
+    const s = currentPoolSettings?.find((s: any) => s.key === key);
+    if (!s) return 0;
+    try { return parseFloat(JSON.parse(s.value)) || 0; }
+    catch { return parseFloat(s.value) || 0; }
+  };
+  const currentHpp = getCurrentVal('pool_hpp_paid_balance');
+  const currentProfit = getCurrentVal('pool_profit_paid_balance');
+  const currentInvestorFund = getCurrentVal('pool_investor_fund');
+  const currentTotal = currentHpp + currentProfit + currentInvestorFund;
+  const newTotal = roundedHpp + roundedProfit + currentInvestorFund;
+
+  // SAFETY: Skip pool sync if it would zero out or drastically reduce existing non-zero balances
+  if (currentTotal > 0 && (roundedHpp === 0 && roundedProfit === 0)) {
+    errors.push(`Pool sync DIBATALKAN: hasil sync akan membuat HPP dan Profit menjadi 0 (sebelumnya HPP=${rp(currentHpp)}, Profit=${rp(currentProfit)}). Ini biasanya berarti data pembayaran ke brankas/bank belum lengkap.`);
+  } else if (currentTotal > 0 && newTotal < currentTotal * 0.2) {
+    errors.push(`Pool sync DIBATALKAN: penurunan terlalu drastis dari ${rp(currentTotal)} ke ${rp(newTotal)} (>80% penurunan). Data pembayaran mungkin belum lengkap.`);
+  } else {
+    // Safe upsert: check-existing → update/insert (Supabase REST doesn't auto-generate id)
+    for (const [key, val] of [['pool_hpp_paid_balance', roundedHpp], ['pool_profit_paid_balance', roundedProfit]] as [string, number][]) {
+      const now = new Date().toISOString();
+      const { data: existing } = await db.from('settings').select('key').eq('key', key).maybeSingle();
+      if (existing) {
+        await db.from('settings').update({ value: JSON.stringify(val), updated_at: now }).eq('key', key);
+      } else {
+        await db.from('settings').insert({ id: generateId(), key, value: JSON.stringify(val), created_at: now, updated_at: now });
+      }
     }
+    fixes.push(`Pool HPP disinkronkan ke ${rp(roundedHpp)} (sebelumnya ${rp(currentHpp)})`);
+    fixes.push(`Pool Profit disinkronkan ke ${rp(roundedProfit)} (sebelumnya ${rp(currentProfit)})`);
   }
-  fixes.push(`Pool HPP disinkronkan ke ${rp(roundedHpp)}`);
-  fixes.push(`Pool Profit disinkronkan ke ${rp(roundedProfit)}`);
 
   // 2. Fix transaction inconsistencies (total ≠ paid + remaining)
   const { data: inconsistentTxs } = await db
