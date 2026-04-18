@@ -242,7 +242,7 @@ export default function AIChatPanel() {
         window.speechSynthesis.speak(utterance);
       } else {
         // Fallback: try server TTS
-        const res = await fetch('/api/ai/tts?XTransformPort=3000', {
+        const res = await fetch('/api/ai/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${(() => { try { const s = JSON.parse(localStorage.getItem('razkindo-auth') || '{}'); return s?.state?.token || ''; } catch { return ''; } })()}` },
           body: JSON.stringify({ text: cleanText, voice: 'tongtong', speed: 1.0 })

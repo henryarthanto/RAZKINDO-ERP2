@@ -1000,6 +1000,11 @@ const io = new Server(httpServer, {
   path: '/',
   pingTimeout: 60000,
   pingInterval: 25000,
+  cors: {
+    origin: process.env.CORS_ORIGINS?.split(',') || true,
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
 });
 
 // ---------------------------------------------------------------------------

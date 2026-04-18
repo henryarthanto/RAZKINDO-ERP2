@@ -35,7 +35,7 @@ let _refCount = 0;
 function getOrCreateSocket(): Socket {
   if (_socket) return _socket;
 
-  _socket = io('/?XTransformPort=3004', {
+  _socket = io('/', {
     path: '/',
     transports: ['websocket', 'polling'],
     reconnection: true,
