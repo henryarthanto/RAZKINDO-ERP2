@@ -61,6 +61,7 @@ function getCPUUsage(): number {
 function getDiskInfo() {
   try {
     // Use df command on macOS/Linux
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { execSync } = require('child_process');
     const output = execSync('df -k / 2>/dev/null || df -k . 2>/dev/null').toString();
     const lines = output.trim().split('\n');
