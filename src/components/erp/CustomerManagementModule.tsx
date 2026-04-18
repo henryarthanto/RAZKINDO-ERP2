@@ -9,7 +9,7 @@ import {
   TrendingUp, RefreshCw,
   MessageCircle, Check, ShoppingBag, Loader2,
   Download,
-  Link2, Copy,
+  Link2, Copy, Share2,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUnitStore } from '@/stores/unit-store';
