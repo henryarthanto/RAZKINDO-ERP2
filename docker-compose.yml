@@ -11,10 +11,9 @@
 #   (or manually place in /DATA/AppData/razkindo2-erp/)
 # =====================================================================
 
-version: "3.8"
-
 services:
   razkindo-erp:
+    build: .
     image: razkindo2-erp:latest
     container_name: razkindo2-erp
     restart: unless-stopped
