@@ -66,3 +66,27 @@ Stage Summary:
 - docker-compose.yml: exposes port 8180→3000, internal 3004 for event-queue
 - All env vars documented with placeholders for user to fill in
 - CasaOS metadata labels included for App Store integration
+---
+Task ID: 10
+Agent: Main Agent
+Task: Finalize Gemini AI migration — remove z-ai-web-dev-sdk, clean up, push to GitHub
+
+Work Log:
+- Verified all AI routes already migrated to @google/generative-ai via @/lib/gemini.ts
+- Confirmed GEMINI_API_KEY already in .env
+- Removed z-ai-web-dev-sdk from package.json and uninstalled
+- Fixed TypeScript type errors in gemini.ts (v0.24.x API: response.response.candidates[0].content.parts[0].text)
+- Updated install.sh .env template to include GEMINI_API_KEY
+- Cleaned up legacy z-ai-web-dev-sdk comment references in tts and promo-image routes
+- TypeScript type check passes clean
+- Committed and pushed to GitHub (fe3b993)
+
+Stage Summary:
+- z-ai-web-dev-sdk fully removed from codebase
+- All AI features now use Google Gemini (free tier)
+- AI Chat Panel: ✅ Gemini
+- AI Discrepancy Root Cause: ✅ Gemini
+- TTS: ✅ Browser SpeechSynthesis (no server-side needed)
+- Promo Image: ⚠️ Placeholder SVG (no free image API connected yet)
+- Product Image: ⚠️ Placeholder SVG (no free image API connected yet)
+- Code pushed to GitHub: https://github.com/razkindopaper-hue/RAZKINDO-ERP2
