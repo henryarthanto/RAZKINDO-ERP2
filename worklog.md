@@ -117,3 +117,25 @@ Stage Summary:
 - System monitoring now functional in Settings > Monitoring tab (super_admin only)
 - Data cleanup feature functional in Settings > Monitoring > Pembersihan Data
 - Commit eb482c0 pushed to GitHub
+
+---
+Task ID: 2
+Agent: main
+Task: Connect local Ollama AI on MacBook to ERP system
+
+Work Log:
+- Discovered project already has Ollama integration (src/lib/ai.ts) migrated from Gemini
+- .env already has OLLAMA_HOST, OLLAMA_API_KEY, OLLAMA_MODEL configured
+- Created GET /api/ai/status endpoint: checks Ollama connection, lists models, verifies default model
+- Added Ollama status indicator in AIChatPanel header (green badge=connected, red=offline)
+- Fixed Docker compose: added OLLAMA_HOST=http://host.docker.internal:11434 override
+- Added extra_hosts mapping for host.docker.internal resolution in container
+- Updated .env with Docker Ollama setup instructions (OLLAMA_HOST=0.0.0.0, OLLAMA_ORIGINS=*)
+- TypeScript compilation clean, all endpoints responding
+
+Stage Summary:
+- Ollama integration already existed in codebase (ai.ts uses 'ollama' npm package)
+- New /api/ai/status endpoint for connection checking
+- Visual status indicator in AI chat panel
+- Docker deployment now properly connects to host MacBook's Ollama
+- Commit 015bf9b pushed to GitHub
