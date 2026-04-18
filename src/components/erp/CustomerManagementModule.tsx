@@ -1324,7 +1324,7 @@ export default function CustomerManagementModule() {
       </Drawer>
 
       {/* ============ FOLLOW UP DRAWER ============ */}
-      <Drawer open={!!followUpCustomer} onOpenChange={(open) => { if (!open) { setFollowUpCustomer(null); setFollowUpForm({ type: 'whatsapp', note: '', outcome: '' }); } }}>
+      <Drawer open={!!followUpCustomer} modal={false} onOpenChange={(open) => { if (!open) { setFollowUpCustomer(null); setFollowUpForm({ type: 'whatsapp', note: '', outcome: '' }); } }}>
         <DrawerContent>
           <DrawerHeader className="border-b">
             <DrawerTitle className="flex items-center gap-2">
