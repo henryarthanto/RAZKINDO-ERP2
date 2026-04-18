@@ -55,6 +55,8 @@ const nextConfig: NextConfig = {
     "http://z.ai",
     "https://*.cfargotunnel.com",
     "https://*.trycloudflare.com",
+    "https://razkindo.biz.id",
+    "https://*.razkindo.biz.id",
   ],
   async rewrites() {
     return [{ source: '/favicon.ico', destination: '/api/pwa/icon?size=32' }];

@@ -48,6 +48,9 @@ RUN npm install -g esbuild && \
     cd /app/mini-services/event-queue && \
     esbuild index.ts --bundle --platform=node --outfile=index.js --format=cjs --packages=external
 
+# Compile proxy-server (ESM → CJS for Node.js 22 compatibility)
+RUN cd /app && esbuild proxy-server.mjs --bundle --platform=node --outfile=proxy-server.cjs --format=cjs --packages=external
+
 # ---- Stage 3: Runner ----
 FROM node:22-alpine AS runner
 WORKDIR /app
@@ -76,6 +79,9 @@ COPY --from=builder /app/prisma ./prisma
 # Copy event-queue mini-service (compiled JS + production deps)
 COPY --from=builder /app/mini-services/event-queue/index.js ./mini-services/event-queue/index.js
 COPY --from=builder /app/mini-services/event-queue/node_modules ./mini-services/event-queue/node_modules
+
+# Copy single-port reverse proxy (for Cloudflare Tunnel)
+COPY --from=builder /app/proxy-server.cjs ./proxy-server.cjs
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
