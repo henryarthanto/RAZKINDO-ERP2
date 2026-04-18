@@ -94,7 +94,9 @@ async function fetchCourierCashSums() {
 }
 
 // ============================================
-// HELPER: Fetch physical cash totals (brankas + bank + courier)
+// HELPER: Fetch physical cash totals (brankas + bank only)
+// Pool dana = uang yang sudah masuk rekening/brankas.
+// Dana kurir BELUM masuk pool karena belum disetor.
 // ============================================
 async function fetchPhysicalTotals() {
   // Sum of all active cash box balances (brankas)
@@ -117,15 +119,17 @@ async function fetchPhysicalTotals() {
     0
   );
 
-  // Sum of all courier cash in hand
+  // Sum of all courier cash in hand (INFO only, NOT part of pool)
   const courierSums = await fetchCourierCashSums();
   const totalWithCouriers = courierSums.balance;
 
+  // Pool dana hanya = brankas + bank (uang yang sudah masuk perusahaan)
+  // Dana kurir belum masuk karena belum disetor ke rekening/brankas
   return {
     totalCashInBoxes,
     totalInBanks,
     totalWithCouriers,
-    totalPhysical: totalCashInBoxes + totalInBanks + totalWithCouriers,
+    totalPhysical: totalCashInBoxes + totalInBanks, // TANPA kurir
     courierSums,
   };
 }
@@ -277,10 +281,10 @@ export async function GET(request: NextRequest) {
     const { hppPaidBalance, profitPaidBalance, investorFund } = poolSettings;
     const totalPool = hppPaidBalance + profitPaidBalance + investorFund;
 
-    // 2. Physical cash totals (brankas + bank + courier)
+    // 2. Physical cash totals (brankas + bank only — kurir BUKAN bagian pool)
     const physical = await fetchPhysicalTotals();
 
-    // 3. Pool vs physical discrepancy
+    // 3. Pool vs physical discrepancy (pool vs brankas+bank)
     const poolDiff = totalPool - physical.totalPhysical;
     const hasDiscrepancy = Math.abs(poolDiff) > 100;
 
@@ -297,11 +301,11 @@ export async function GET(request: NextRequest) {
       investorFund,
       totalPool,
 
-      // ── Physical cash breakdown (real-world) ──
+      // ── Physical cash breakdown (brankas + bank only = pool dana) ──
       totalCashInBoxes: physical.totalCashInBoxes,
       totalInBanks: physical.totalInBanks,
-      totalWithCouriers: physical.totalWithCouriers,
-      totalPhysical: physical.totalPhysical,
+      totalWithCouriers: physical.totalWithCouriers, // INFO only, NOT part of pool
+      totalPhysical: physical.totalPhysical, // = brankas + bank (TANPA kurir)
 
       // ── Discrepancy: pool vs physical ──
       poolDiff,
@@ -482,10 +486,10 @@ async function computeSyncPreview() {
   const courierSums = await fetchCourierCashSums();
 
   // 4. Suggested values = RPC (money already in brankas/bank via handover)
-  //    + courier pending (money still with couriers = part of physical cash)
-  //    This ensures totalPool = totalPhysical → selisih = 0
-  const suggestedHpp = Math.round(rpc.rpcHppSum + courierSums.hppPending);
-  const suggestedProfit = Math.round(rpc.rpcProfitSum + courierSums.profitPending);
+  //    Dana kurir TIDAK dimasukkan karena belum disetor ke rekening/brankas,
+  //    jadi belum masuk pool dana.
+  const suggestedHpp = Math.round(rpc.rpcHppSum);
+  const suggestedProfit = Math.round(rpc.rpcProfitSum);
 
   // 5. Compute changes (current → suggested)
   const hppDelta = suggestedHpp - currentHpp;
@@ -509,7 +513,7 @@ async function computeSyncPreview() {
   }
 
   if (courierSums.hppPending > 0 || courierSums.profitPending > 0) {
-    warnings.push(`📦 Termasuk dana kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini sudah termasuk dalam pool karena merupakan bagian dari dana fisik.`);
+    warnings.push(`📦 Dana kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini BELUM masuk pool karena belum disetor ke rekening/brankas. Setelah kurir menyetor, baru masuk pool.`);
   }
 
   if (Math.abs(hppDelta) > currentHpp * 0.5 && currentHpp > 0) {

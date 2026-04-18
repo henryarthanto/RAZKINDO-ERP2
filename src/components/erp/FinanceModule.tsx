@@ -327,7 +327,8 @@ export default function FinanceModule() {
   // Calculate fund balances
   // Settings IS the authoritative source for pool balances.
   // hppInHand/profitInHand = pool values (HPP/Profit sudah terbayar from settings).
-  // totalFunds = uang fisik di perusahaan (brankas + bank + uang masih dipegang kurir).
+  // totalFunds = uang fisik di perusahaan (brankas + bank TANPA kurir).
+  // Dana kurir BELUM masuk pool karena belum disetor ke rekening/brankas.
   // poolDiff = selisih antara komposisi pool dan dana fisik.
   const fundBalances = useMemo(() => {
     // Type guard: wrap all API values with Number() to prevent React error #31
@@ -337,14 +338,16 @@ export default function FinanceModule() {
     const totalPool = Number(poolBalancesData?.totalPool) || 0;
 
     // Physical totals from API (authoritative — computed server-side)
+    // totalPhysical = brankas + bank (TANPA kurir)
     const totalCashInBoxes = Number(poolBalancesData?.totalCashInBoxes) ||
       cashBoxes.reduce((sum: number, c: CashBox) => sum + c.balance, 0);
     const totalInBanks = Number(poolBalancesData?.totalInBanks) ||
       bankAccounts.reduce((sum: number, b: BankAccount) => sum + b.balance, 0);
     const totalWithCouriers = Number(poolBalancesData?.totalWithCouriers) ||
       Number(courierCashSummary?.totalWithCouriers) || 0;
+    // Pool dana = brankas + bank saja (uang sudah masuk perusahaan)
     const totalPhysical = Number(poolBalancesData?.totalPhysical) ||
-      (totalCashInBoxes + totalInBanks + totalWithCouriers);
+      (totalCashInBoxes + totalInBanks);
 
     // Pool vs Physical discrepancy (from API)
     const poolDiff = Number(poolBalancesData?.poolDiff) ?? (totalPool - totalPhysical);
@@ -363,7 +366,7 @@ export default function FinanceModule() {
       totalCashInBoxes,
       totalInBanks,
       totalWithCouriers,
-      totalFunds: totalPhysical,
+      totalFunds: totalPhysical, // = brankas + bank (TANPA kurir)
       hppPaidBalance,
       profitPaidBalance,
       investorFund,
@@ -714,7 +717,7 @@ export default function FinanceModule() {
               <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Dana Kurir</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Dana Kurir (belum pool)</p>
               <p className="text-xs sm:text-lg font-bold text-orange-700 dark:text-orange-300 truncate">{formatCurrency(fundBalances.totalWithCouriers)}</p>
             </div>
           </CardContent>
@@ -726,7 +729,7 @@ export default function FinanceModule() {
               <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Total Dana</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Pool (Brankas+Bank)</p>
               <p className="text-xs sm:text-lg font-bold text-emerald-700 dark:text-emerald-300 truncate">{formatCurrency(fundBalances.totalFunds)}</p>
             </div>
           </CardContent>
@@ -786,12 +789,12 @@ export default function FinanceModule() {
                       Update Komposisi Dana
                     </DialogTitle>
                     <DialogDescription>
-                      Atur pembagian pool dana. Total fisik = Rekening + Brankas + Kurir = {formatCurrency(fundBalances.totalCashInBoxes + fundBalances.totalInBanks + fundBalances.totalWithCouriers)}
+                      Atur pembagian pool dana. Total fisik = Rekening + Brankas = {formatCurrency(fundBalances.totalCashInBoxes + fundBalances.totalInBanks)}
                     </DialogDescription>
                   </DialogHeader>
                   <PoolAdjustForm
                     key={poolFormKey}
-                    totalPhysical={fundBalances.totalCashInBoxes + fundBalances.totalInBanks + fundBalances.totalWithCouriers}
+                    totalPhysical={fundBalances.totalCashInBoxes + fundBalances.totalInBanks}
                     currentHpp={fundBalances.hppPaidBalance}
                     currentProfit={fundBalances.profitPaidBalance}
                     currentInvestorFund={fundBalances.investorFund}
@@ -882,27 +885,28 @@ export default function FinanceModule() {
                 </div>
                 <div className="text-[10px] text-muted-foreground pt-0.5 break-words">
                   <Info className="w-3 h-3 inline mr-0.5" />
-                  Brankas {formatCurrency(fundBalances.totalCashInBoxes)} + Bank {formatCurrency(fundBalances.totalInBanks)} + Kurir {formatCurrency(fundBalances.totalWithCouriers)} = {formatCurrency(fundBalances.totalFunds)}
+                  Brankas {formatCurrency(fundBalances.totalCashInBoxes)} + Bank {formatCurrency(fundBalances.totalInBanks)} = {formatCurrency(fundBalances.totalFunds)}
+                  {fundBalances.totalWithCouriers > 0 && ` | Kurir (belum pool): ${formatCurrency(fundBalances.totalWithCouriers)}`}
                   {fundBalances.investorFund > 0 && ` — Dana Lain-lain: ${formatCurrency(fundBalances.investorFund)}`}
                 </div>
                 {fundBalances.poolDiff > 0 && (
                   <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-0.5">
-                    Pool lebih besar dari dana fisik. Cek apakah ada dana yang belum tercatat di brankas/bank/kurir.
+                    Pool lebih besar dari dana fisik (brankas+bank). Cek apakah ada dana yang belum tercatat.
                   </div>
                 )}
                 {fundBalances.poolDiff < 0 && (
                   <div className="text-[10px] text-blue-600 dark:text-blue-400 pt-0.5">
-                    Dana fisik lebih besar dari pool. Mungkin ada dana dari sumber lain yang belum masuk komposisi pool.
+                    Dana fisik (brankas+bank) lebih besar dari pool. Mungkin ada dana dari sumber lain yang belum masuk komposisi pool.
                   </div>
                 )}
               </>
             ) : (
               <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-300">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Data Tersinkronisasi — Pool ({formatCurrency(fundBalances.totalPool)}) = Dana Fisik ({formatCurrency(fundBalances.totalFunds)})
+                Data Tersinkronisasi — Pool ({formatCurrency(fundBalances.totalPool)}) = Brankas+Bank ({formatCurrency(fundBalances.totalFunds)})
                 {fundBalances.totalWithCouriers > 0 && (
                   <span className="text-orange-600 dark:text-orange-400 ml-2">
-                    (termasuk {formatCurrency(fundBalances.totalWithCouriers)} di kurir)
+                    (kurir belum pool: {formatCurrency(fundBalances.totalWithCouriers)})
                   </span>
                 )}
               </div>
