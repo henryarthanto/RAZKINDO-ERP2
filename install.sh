@@ -120,6 +120,9 @@ VAPID_SUBJECT=mailto:admin@razkindo.com
 WS_SECRET=CHANGE_ME
 WS_PORT=3004
 WS_INTERNAL_URL=http://127.0.0.1:3004
+
+# Google Gemini AI (free — get key at https://aistudio.google.com/apikey)
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY
 ENVEOF
 
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

@@ -10,7 +10,7 @@
 // - Graceful error handling
 // =====================================================================
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, type GenerateContentResult } from '@google/generative-ai';
 
 let _genAI: GoogleGenerativeAI | null = null;
 
@@ -141,7 +141,7 @@ export async function chatCompletion(options: {
           ...(combinedSystem ? { systemInstruction: combinedSystem } : {}),
         });
         const response = await chat.sendMessage(lastUserMessage || 'Hello');
-        return response.text();
+        return (response.response?.candidates?.[0]?.content?.parts?.[0]?.text) || '';
       });
 
       return { content: result };
@@ -188,7 +188,7 @@ export async function generateText(options: {
 
       const result = await tryWithRetries(modelName, async () => {
         const response = await model.generateContent(options.prompt);
-        return response.text();
+        return (response.response?.candidates?.[0]?.content?.parts?.[0]?.text) || '';
       });
 
       return result;

@@ -8,7 +8,7 @@
 // - Batch by productIds array with promoType
 // - Promo types: discount, bundle, new, flash_sale
 //
-// Uses z-ai-web-dev-sdk for image generation.
+// Currently uses placeholder SVG (requires external image API for real generation).
 // Super Admin only.
 // =====================================================================
 

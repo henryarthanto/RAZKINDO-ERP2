@@ -2,10 +2,8 @@
 // AI TTS (Text-to-Speech) API
 // Endpoint: POST /api/ai/tts
 //
-// NOTE: After migrating from z-ai-web-dev-sdk to Google Gemini,
-// server-side TTS is no longer available (Gemini doesn't offer TTS).
-// This endpoint now returns the text for the frontend to use
-// browser's built-in SpeechSynthesis API instead.
+// Uses browser's built-in SpeechSynthesis API for TTS.
+// Returns text with voice/speed parameters for client-side rendering.
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
