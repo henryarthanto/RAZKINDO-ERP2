@@ -354,10 +354,10 @@ async function adjustDiscrepancies(userId: string) {
 // =====================================================================
 
 async function findRootCause(discrepancyData: any) {
-  const { chatCompletion, isAvailable } = await import('@/lib/gemini');
+  const { chatCompletion, isAvailable } = await import('@/lib/ai');
 
   if (!isAvailable()) {
-    return '⚠️ AI belum dikonfigurasi. Tambahkan GEMINI_API_KEY di file .env untuk analisis akar penyebab otomatis.';
+    return '⚠️ AI belum dikonfigurasi. Tambahkan OLLAMA_HOST di file .env untuk analisis akar penyebab otomatis.';
   }
 
   // Build context string from discrepancy data

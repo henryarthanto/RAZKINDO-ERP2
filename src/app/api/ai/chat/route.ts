@@ -591,10 +591,10 @@ async function askLLM(
   history: { role: string; content: string }[],
   financialContext?: string | null,
 ): Promise<string> {
-  const { chatCompletion, isAvailable } = await import('@/lib/gemini');
+  const { chatCompletion, isAvailable } = await import('@/lib/ai');
 
   if (!isAvailable()) {
-    return '⚠️ AI belum dikonfigurasi. Tambahkan GEMINI_API_KEY di file .env untuk mengaktifkan fitur AI chat.';
+    return '⚠️ AI belum dikonfigurasi. Tambahkan OLLAMA_HOST di file .env untuk mengaktifkan fitur AI chat.';
   }
 
   const today = format(new Date(), 'EEEE, dd MMMM yyyy', { locale: id });
