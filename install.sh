@@ -3,10 +3,11 @@
 # Razkindo2 ERP - One-Click Install Script for CasaOS
 # =====================================================================
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/razkindo2-erp/main/install.sh | bash
+#   bash install.sh [GITHUB_REPO_URL] [BRANCH]
 #
-# Or if you already have the source code:
-#   chmod +x install.sh && ./install.sh
+# Quick install from GitHub:
+#   git clone https://github.com/razkindopaper-hue/RAZKINDO-ERP2.git /DATA/AppData/razkindo2-erp
+#   cd /DATA/AppData/razkindo2-erp && bash install.sh
 # =====================================================================
 
 set -e
@@ -28,18 +29,15 @@ echo -e "${NC}"
 # ---- Check Docker ----
 if ! command -v docker &>/dev/null; then
     echo -e "${RED}[ERROR] Docker not found. Please install Docker first.${NC}"
-    echo "  CasaOS already includes Docker. If missing:"
-    echo "  curl -fsSL https://get.docker.com | sh"
     exit 1
 fi
 
 if ! docker compose version &>/dev/null; then
     echo -e "${RED}[ERROR] Docker Compose not found.${NC}"
-    echo "  CasaOS should include it. Try: apt install docker-compose-plugin"
     exit 1
 fi
 
-echo -e "${GREEN}[OK] Docker & Docker Compose found${NC}"
+echo -e "${GREEN}[OK]${NC} Docker & Docker Compose found"
 
 # ---- Config ----
 REPO_URL="${1:-}"
@@ -47,80 +45,103 @@ BRANCH="${2:-main}"
 APP_NAME="razkindo2-erp"
 INSTALL_DIR="/DATA/AppData/${APP_NAME}"
 
-# If REPO_URL provided, clone. Otherwise assume source already in INSTALL_DIR.
+# If REPO_URL provided, clone
 if [ -n "$REPO_URL" ]; then
     echo -e "${BLUE}[1/4] Cloning repository...${NC}"
+    REPO_URL="${REPO_URL%.git}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}  Directory exists. Pulling latest...${NC}"
         cd "$INSTALL_DIR"
         git pull origin "$BRANCH" || true
     else
         mkdir -p "$(dirname "$INSTALL_DIR")"
-        git clone -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+        git clone -b "$BRANCH" "${REPO_URL}.git" "$INSTALL_DIR"
     fi
     cd "$INSTALL_DIR"
 else
-    # Try to find docker-compose.yml in current directory or parent
+    # Find project directory
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     if [ -f "$SCRIPT_DIR/docker-compose.yml" ]; then
         cd "$SCRIPT_DIR"
         INSTALL_DIR="$SCRIPT_DIR"
     else
         echo -e "${RED}[ERROR] No docker-compose.yml found.${NC}"
-        echo "  Either:"
-        echo "    1. Provide GitHub URL: ./install.sh https://github.com/USER/razkindo2-erp.git"
-        echo "    2. Run from the project directory that contains docker-compose.yml"
+        echo "  Usage:"
+        echo "    bash install.sh https://github.com/razkindopaper-hue/RAZKINDO-ERP2.git"
+        echo "    OR run from the project directory"
         exit 1
     fi
 fi
 
-echo -e "${GREEN}[OK] Working directory: $(pwd)${NC}"
+echo -e "${GREEN}[OK]${NC} Working directory: $(pwd)"
 
-# ---- Check .env.local for auto-fill ----
-ENV_FILE=".env.local"
-ENV_BACKUP=".env.backup"
+# ---- Setup .env file ----
+echo ""
+echo -e "${BLUE}[2/4] Setting up environment variables...${NC}"
 
-if [ -f "$ENV_FILE" ]; then
-    echo -e "${BLUE}[2/4] Found .env.local - extracting environment variables...${NC}"
-    cp "$ENV_FILE" "$ENV_BACKUP" 2>/dev/null || true
-
-    # Extract values from .env.local and inject into docker-compose.yml
-    if command -v sed &>/dev/null; then
-        for VAR in DATABASE_URL DIRECT_URL SUPABASE_DB_URL SUPABASE_POOLER_URL \
-                   SUPABASE_SESSION_POOL_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY \
-                   SUPABASE_SERVICE_ROLE_KEY NEXTAUTH_SECRET NEXTAUTH_URL AUTH_SECRET \
-                   NEXT_PUBLIC_VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY WS_SECRET; do
-            VAL=$(grep "^${VAR}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | sed 's/^"//' | sed 's/"$//')
-            if [ -n "$VAL" ]; then
-                # Replace placeholder in docker-compose.yml
-                sed -i "s|${VAR}=.*|${VAR}=${VAL}|g" docker-compose.yml 2>/dev/null || true
-                echo -e "  ${GREEN}✓${NC} ${VAR}"
-            fi
-        done
-    fi
+# Check for existing env files
+if [ -f ".env" ]; then
+    echo -e "${GREEN}[OK]${NC} .env file found — using existing configuration"
+elif [ -f ".env.local" ]; then
+    echo -e "${GREEN}[OK]${NC} .env.local found — copying to .env"
+    cp .env.local .env
 else
-    echo -e "${YELLOW}[2/4] No .env.local found. You must edit docker-compose.yml manually.${NC}"
-    echo -e "${YELLOW}  Run: nano docker-compose.yml${NC}"
+    echo -e "${YELLOW}No .env file found. Creating template...${NC}"
     echo ""
-    read -p "Have you configured the environment variables? (y/n) " -n 1 -r
+    cat > .env << 'ENVEOF'
+# ============================================================
+# Razkindo2 ERP - Environment Configuration
+# ============================================================
+
+# Database - Supabase PostgreSQL
+DATABASE_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+DIRECT_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres
+SUPABASE_DB_URL=postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT_REF.supabase.co:5432/postgres
+SUPABASE_POOLER_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres
+SUPABASE_SESSION_POOL_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres
+
+# Supabase REST API
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+
+# NextAuth
+NEXTAUTH_SECRET=CHANGE_ME
+NEXTAUTH_URL=http://localhost:8180
+
+# Auth Secret
+AUTH_SECRET=CHANGE_ME
+
+# VAPID Push Notification Keys
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=YOUR_VAPID_PUBLIC_KEY
+VAPID_PRIVATE_KEY=YOUR_VAPID_PRIVATE_KEY
+VAPID_SUBJECT=mailto:admin@razkindo.com
+
+# WebSocket Event Queue
+WS_SECRET=CHANGE_ME
+WS_PORT=3004
+WS_INTERNAL_URL=http://127.0.0.1:3004
+ENVEOF
+
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}  ⚠️  You MUST edit .env with your credentials!${NC}"
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "  File: ${INSTALL_DIR}/.env"
+    echo ""
+    echo "  Generate secrets with: openssl rand -base64 32"
+    echo ""
+
+    read -p "Have you edited the .env file? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${RED}Aborted. Please configure environment variables first.${NC}"
-        echo "  Edit docker-compose.yml and fill in:"
-        echo "    - DATABASE_URL, DIRECT_URL, SUPABASE_DB_URL"
-        echo "    - NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY"
-        echo "    - SUPABASE_SERVICE_ROLE_KEY"
-        echo "    - NEXTAUTH_SECRET, AUTH_SECRET"
-        echo "    - WS_SECRET"
+        echo -e "${YELLOW}Stopped. Edit .env first, then re-run: bash install.sh${NC}"
         exit 1
     fi
 fi
 
-echo -e "${GREEN}[OK] Environment variables ready${NC}"
-
 # ---- Build Docker Image ----
-echo -e "${BLUE}[3/4] Building Docker image (this may take 5-15 minutes)...${NC}"
-echo -e "${YELLOW}  Building razkindo2-erp:latest ...${NC}"
+echo ""
+echo -e "${BLUE}[3/4] Building Docker image (5-15 minutes)...${NC}"
 
 docker build -t razkindo2-erp:latest . 2>&1 | tail -20
 
@@ -129,54 +150,31 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo -e "${GREEN}[OK] Image built successfully${NC}"
+echo -e "${GREEN}[OK]${NC} Image built: razkindo2-erp:latest"
 
 # ---- Start Container ----
+echo ""
 echo -e "${BLUE}[4/4] Starting Razkindo2 ERP...${NC}"
 
-# Stop existing container if running
 docker compose down 2>/dev/null || true
-
-# Start fresh
 docker compose up -d
 
-# Wait for health check
 echo -e "${YELLOW}  Waiting for app to start...${NC}"
 sleep 5
 
-MAX_WAIT=60
-WAITED=0
-while [ $WAITED -lt $MAX_WAIT ]; do
-    if docker exec razkindo2-erp wget -qO- http://localhost:3000/ >/dev/null 2>&1; then
-        echo -e "${GREEN}[OK] App is running!${NC}"
-        break
-    fi
-    sleep 2
-    WAITED=$((WAITED + 2))
-    echo -e "  Waiting... (${WAITED}s)"
-done
-
-if [ $WAITED -ge $MAX_WAIT ]; then
-    echo -e "${YELLOW}[WARN] App may still be starting. Check: docker logs razkindo2-erp${NC}"
-fi
-
 # ---- Summary ----
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' | head -1)
+
 echo ""
-echo -e "${CYAN}============================================"
-echo -e "  Installation Complete!"
+echo -e "${GREEN}============================================"
+echo -e "  ✅ Installation Complete!"
 echo -e "============================================${NC}"
 echo ""
-echo -e "  ${GREEN}Access your ERP:${NC}"
-echo -e "    URL:    ${CYAN}http://$(hostname -I 2>/dev/null | awk '{print $1}' | head -1):8180${NC}"
-echo -e "    Local:  ${CYAN}http://localhost:8180${NC}"
+echo -e "  Access: ${CYAN}http://${LOCAL_IP}:8180${NC}"
 echo ""
-echo -e "  ${GREEN}Useful commands:${NC}"
-echo -e "    View logs:     ${YELLOW}docker logs -f razkindo2-erp${NC}"
-echo -e "    Stop:          ${YELLOW}docker compose down${NC}"
-echo -e "    Restart:       ${YELLOW}docker compose restart${NC}"
-echo -e "    Rebuild:       ${YELLOW}docker compose build && docker compose up -d${NC}"
-echo -e "    Update:        ${YELLOW}git pull && docker compose build && docker compose up -d${NC}"
-echo ""
-echo -e "  ${GREEN}CasaOS:${NC}"
-echo -e "    Open CasaOS App Store to see Razkindo2 ERP card."
+echo -e "  Commands:"
+echo -e "    Logs:     ${YELLOW}docker logs -f razkindo2-erp${NC}"
+echo -e "    Stop:     ${YELLOW}cd ${INSTALL_DIR} && docker compose down${NC}"
+echo -e "    Restart:  ${YELLOW}cd ${INSTALL_DIR} && docker compose restart${NC}"
+echo -e "    Update:   ${YELLOW}cd ${INSTALL_DIR} && git pull && docker compose up -d --build${NC}"
 echo ""
