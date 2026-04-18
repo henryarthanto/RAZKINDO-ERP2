@@ -716,23 +716,6 @@ export const api = {
       }),
   },
 
-  // ============ STORAGE ============
-  storage: {
-    get: () =>
-      apiFetch<{ storage: any }>('/api/storage'),
-
-    cleanup: () =>
-      apiFetch<{ success: boolean }>('/api/storage', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'cleanup' }),
-      }),
-
-    backup: () =>
-      apiFetch<{ success: boolean }>('/api/storage', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'backup' }),
-      }),
-  },
 
   // ============ SALES TARGETS ============
   salesTargets: {

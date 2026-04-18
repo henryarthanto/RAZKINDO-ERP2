@@ -11,7 +11,6 @@ import {
   Building2,
   Printer,
   MessageSquare,
-  HardDrive,
   Database,
   Plus,
   Trash2,
@@ -46,7 +45,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingFallback } from '@/components/error-boundary';
 import WhatsAppSettingsTab from './WhatsAppSettingsTab';
-import StorageTab from './StorageTab';
 import { apiFetch } from '@/lib/api-client';
 import { requestBLEPrinter, connectBLEPrinter, wrapReceiptWithESCPOS, writeBLEChunks } from '@/lib/generate-invoice-pdf';
 import type { Unit } from '@/types';
@@ -450,9 +448,6 @@ export default function SettingsModule() {
               <SelectItem value="whatsapp">
                 <span className="inline-flex items-center gap-2"><MessageSquare className="w-4 h-4" /><span>WhatsApp</span></span>
               </SelectItem>
-              <SelectItem value="storage">
-                <span className="inline-flex items-center gap-2"><HardDrive className="w-4 h-4" /><span>Storage</span></span>
-              </SelectItem>
               <SelectItem value="system">
                 <span className="inline-flex items-center gap-2"><Database className="w-4 h-4" /><span>Sistem</span></span>
               </SelectItem>
@@ -466,7 +461,6 @@ export default function SettingsModule() {
           <TabsTrigger value="units" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Building2 className="w-3 h-3 sm:w-4 sm:h-4" />Unit</TabsTrigger>
           <TabsTrigger value="printer" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Printer className="w-3 h-3 sm:w-4 sm:h-4" />Printer</TabsTrigger>
           <TabsTrigger value="whatsapp" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><MessageSquare className="w-3 h-3 sm:w-4 sm:h-4" />WA</TabsTrigger>
-          <TabsTrigger value="storage" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><HardDrive className="w-3 h-3 sm:w-4 sm:h-4" />Storage</TabsTrigger>
           <TabsTrigger value="system" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Database className="w-3 h-3 sm:w-4 sm:h-4" />Sistem</TabsTrigger>
         </TabsList>
         
@@ -830,11 +824,6 @@ Kembali                0
           </Card>
         </TabsContent>
         
-        {/* ===== TAB: STORAGE Z.AI ===== */}
-        <TabsContent value="storage" className="space-y-4">
-          <StorageTab queryClient={queryClient} />
-        </TabsContent>
-
         {/* ===== TAB: SISTEM ===== */}
         <TabsContent value="system" className="space-y-4">
           {/* Database Statistics */}
