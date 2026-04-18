@@ -1,4 +1,17 @@
 :81 {
+        # Socket.io engine.io polling → event-queue on port 3004
+        @engineio {
+                query EIO=*
+        }
+        handle @engineio {
+                reverse_proxy localhost:3004 {
+                        header_up Host {host}
+                        header_up X-Forwarded-For {remote_host}
+                        header_up X-Forwarded-Proto {scheme}
+                        header_up X-Real-IP {remote_host}
+                }
+        }
+
         # WebSocket upgrade requests → event-queue on port 3004
         @websocket {
                 header Connection *Upgrade*

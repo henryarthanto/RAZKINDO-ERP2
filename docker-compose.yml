@@ -31,9 +31,9 @@ services:
       # Override Ollama host to access host machine (MacBook)
       # Inside Docker, localhost = container, host.docker.internal = MacBook
       - OLLAMA_HOST=http://host.docker.internal:11434
-      # CORS origins for WebSocket (add your Cloudflare tunnel domain here)
-      # e.g. CORS_ORIGINS=https://your-domain.trycloudflare.com,http://localhost:8180
-      - CORS_ORIGINS=http://localhost:8180
+      # CORS origins for WebSocket (set to * to allow Cloudflare tunnel domains)
+      # Or set specific: CORS_ORIGINS=https://your-domain.trycloudflare.com
+      - CORS_ORIGINS=*
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
