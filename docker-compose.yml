@@ -2,14 +2,13 @@
 # Razkindo2 ERP - Docker Compose for CasaOS
 # =====================================================================
 # Usage:
-#   1. Copy this file to your CasaOS server
-#   2. Edit the environment variables (especially database & auth)
+#   1. Copy .env from template (install script does this automatically)
+#   2. Fill in all credentials in .env
 #   3. Run: docker compose up -d
 #
 # CasaOS Install:
-#   1. Open CasaOS → App Store → Custom Install
-#   2. Paste the content of this file
-#   3. Or: place in /DATA/AppData/razkindo-erp/docker-compose.yml
+#   bash install-casaos.sh
+#   (or manually place in /DATA/AppData/razkindo2-erp/)
 # =====================================================================
 
 version: "3.8"
@@ -21,41 +20,14 @@ services:
     restart: unless-stopped
     ports:
       - "8180:3000"   # Next.js web app (external:internal)
-      # Port 3004 (event-queue) is internal only, not exposed
+      # Port 3004 (event-queue) is internal only
+    env_file:
+      - .env
     environment:
-      # ---- Database (Supabase PostgreSQL) ----
-      # IMPORTANT: Replace with your own Supabase credentials
-      - DATABASE_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true
-      - DIRECT_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres
-      - SUPABASE_DB_URL=postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT_REF.supabase.co:5432/postgres
-      - SUPABASE_POOLER_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres
-      - SUPABASE_SESSION_POOL_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres
-
-      # ---- Supabase REST API ----
-      - NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
-      - SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
-
-      # ---- NextAuth ----
-      # Generate new secrets: openssl rand -base64 32
-      - NEXTAUTH_SECRET=CHANGE_ME_GENERATE_NEW_SECRET
-      - NEXTAUTH_URL=http://YOUR_CASAOS_IP:8180
-
-      # ---- Auth Secret (HMAC token signing) ----
-      - AUTH_SECRET=CHANGE_ME_GENERATE_NEW_AUTH_SECRET
-
-      # ---- VAPID Push Notifications ----
-      # Generate: npx web-push generate-vapid-keys
-      - NEXT_PUBLIC_VAPID_PUBLIC_KEY=YOUR_VAPID_PUBLIC_KEY
-      - VAPID_PRIVATE_KEY=YOUR_VAPID_PRIVATE_KEY
-      - VAPID_SUBJECT=mailto:admin@razkindo.com
-
-      # ---- WebSocket Event Queue ----
-      - WS_SECRET=CHANGE_ME_GENERATE_WS_SECRET
-      - WS_PORT=3004
-      - WS_INTERNAL_URL=http://127.0.0.1:3004
-
-      # ---- Node.js Runtime ----
+      # Override defaults for container runtime
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
+      - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=768
     volumes:
       # Persist local database file (if using SQLite fallback)
