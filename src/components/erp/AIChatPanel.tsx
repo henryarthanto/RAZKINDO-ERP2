@@ -8,7 +8,7 @@ import { apiFetch } from '@/lib/api-client';
 import {
   X, Bot, Trash2, Send, Plus, Download, Volume2, VolumeX,
   Megaphone, Users, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp,
-  Search, Wrench, Image, AlertTriangle, ShieldCheck
+  Search, Wrench, Image, AlertTriangle, ShieldCheck, Cpu, Wifi, WifiOff
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,6 +80,25 @@ export default function AIChatPanel() {
   const [promoProducts, setPromoProducts] = useState<any[]>([]);
 
   const isSuperAdmin = user?.role === 'super_admin';
+
+  // Ollama status check
+  const [ollamaStatus, setOllamaStatus] = useState<{connected: boolean; models: string[]; defaultModel: string; host: string; checked: boolean}>({connected: false, models: [], defaultModel: '', host: '', checked: false});
+
+  useEffect(() => {
+    if (isOpen) {
+      apiFetch<any>('/api/ai/status').then(data => {
+        setOllamaStatus({
+          connected: data.connected ?? false,
+          models: data.models ?? [],
+          defaultModel: data.defaultModel ?? '',
+          host: data.host ?? '',
+          checked: true,
+        });
+      }).catch(() => {
+        setOllamaStatus(prev => ({...prev, checked: true}));
+      });
+    }
+  }, [isOpen]);
 
   // Client-side financial analysis detection (mirrors server-side logic)
   function isFinancialAnalysis(msg: string): boolean {
@@ -1149,6 +1168,22 @@ export default function AIChatPanel() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                {/* Ollama Status Indicator */}
+                {ollamaStatus.checked && (
+                  <div className="flex items-center gap-1 mr-1" title={ollamaStatus.connected ? `Ollama: ${ollamaStatus.models.length} model(s) — ${ollamaStatus.defaultModel}` : 'Ollama tidak terhubung'}>
+                    {ollamaStatus.connected ? (
+                      <div className="flex items-center gap-1 bg-white/20 rounded-full px-2 py-0.5">
+                        <Cpu className="w-3 h-3" />
+                        <span className="text-[10px] font-medium">Ollama</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 bg-red-500/40 rounded-full px-2 py-0.5">
+                        <WifiOff className="w-3 h-3" />
+                        <span className="text-[10px] font-medium">Offline</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <button onClick={clearChat} className="w-8 h-8 rounded-full hover:bg-white/20 flex items-center justify-center" title="Reset">
                   <Trash2 className="w-4 h-4" />
                 </button>

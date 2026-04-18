@@ -28,6 +28,11 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=768
+      # Override Ollama host to access host machine (MacBook)
+      # Inside Docker, localhost = container, host.docker.internal = MacBook
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persist local database file (if using SQLite fallback)
       - razkindo_data:/app/db
