@@ -1,8 +1,10 @@
 # =====================================================================
 # Razkindo2 ERP - Docker Image for CasaOS / Docker Deployment
 # =====================================================================
+# Supports: amd64 (x86_64) and arm64 (aarch64)
+#
 # Multi-stage build:
-#   1. deps     — install all dependencies
+#   1. deps     — install all dependencies (native binaries for target arch)
 #   2. builder  — build Next.js + compile event-queue TS→JS
 #   3. runner   — minimal production image
 # =====================================================================
@@ -11,29 +13,37 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 
+# Install build tools needed for native modules (sharp, prisma) on Alpine/ARM
+RUN apk add --no-cache python3 make g++
+
 COPY package.json bun.lock ./
-RUN npm install 2>/dev/null || true
+
+# Install dependencies — npm will pull correct native binaries for current arch
+RUN npm install --legacy-peer-deps 2>&1 | tail -5
 
 # Install event-queue deps
 COPY mini-services/event-queue/package.json mini-services/event-queue/bun.lock* ./mini-services/event-queue/
-RUN cd mini-services/event-queue && npm install 2>/dev/null || true
+RUN cd mini-services/event-queue && npm install 2>&1 | tail -3
 
 # ---- Stage 2: Builder ----
 FROM node:22-alpine AS builder
 WORKDIR /app
 
+# Install build tools for prisma generate
+RUN apk add --no-cache python3 make g++
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/mini-services/event-queue/node_modules ./mini-services/event-queue/node_modules
 COPY . .
 
-# Generate Prisma Client
+# Generate Prisma Client (will detect target architecture)
 RUN npx prisma generate
 
 # Build Next.js (standalone output)
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Compile event-queue TypeScript → JavaScript (using esbuild, fast & reliable)
+# Compile event-queue TypeScript → JavaScript (esbuild supports arm64)
 RUN npm install -g esbuild && \
     cd /app/mini-services/event-queue && \
     esbuild index.ts --bundle --platform=node --outfile=index.js --format=cjs --packages=external
@@ -56,10 +66,21 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Copy Prisma schema + generated client (needed at runtime for DB queries)
+# Copy Prisma schema + generated client (architecture-specific binaries included)
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+# Copy sharp native binaries
+COPY --from=builder /app/node_modules/sharp ./node_modules/sharp
+
+# Copy pg module (pure JS, no native binaries needed)
+COPY --from=builder /app/node_modules/pg ./node_modules/pg
+COPY --from=builder /app/node_modules/pg-connection-string ./node_modules/pg-connection-string
+COPY --from=builder /app/node_modules/pg-pool ./node_modules/pg-pool
+COPY --from=builder /app/node_modules/pg-types ./node_modules/pg-types
+COPY --from=builder /app/node_modules/pg-protocol ./node_modules/pg-protocol
+COPY --from=builder /app/node_modules/pg-pass ./node_modules/pg-pass
 
 # Copy event-queue mini-service (compiled JS + production deps)
 COPY --from=builder /app/mini-services/event-queue/index.js ./mini-services/event-queue/index.js
@@ -74,7 +95,7 @@ RUN mkdir -p /app/db && chown nextjs:nodejs /app/db
 
 USER nextjs
 
-EXPOSE 3000 3004
+EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD wget -qO- http://localhost:3000/api/health || exit 1
