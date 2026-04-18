@@ -22,10 +22,25 @@ export class ErrorBoundary extends React.Component<
   }
 
   static getDerivedStateFromError(error: Error) {
+    // Auto-recover from chunk load errors (stale cache after deployment)
+    const msg = error?.message || '';
+    if (msg.includes('Loading chunk') || msg.includes('Failed to load chunk') || msg.includes('ChunkLoadError')) {
+      console.warn('[ErrorBoundary] Chunk load error detected, auto-reloading...');
+      // Use window.location to force a full page reload with fresh chunks
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+      return { hasError: false, error: null };
+    }
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    const msg = error?.message || '';
+    // Don't log chunk errors — they're handled by auto-reload above
+    if (msg.includes('Loading chunk') || msg.includes('Failed to load chunk') || msg.includes('ChunkLoadError')) {
+      return;
+    }
     console.error('[ErrorBoundary] Uncaught error:', error, errorInfo);
   }
 
@@ -92,8 +107,15 @@ export function GlobalErrorHandler() {
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
-      console.error('Global error:', event.error);
       const msg = event.error?.message || '';
+      // Auto-recover from chunk load errors (stale cache after deployment)
+      if (msg.includes('Loading chunk') || msg.includes('Failed to load chunk') || msg.includes('ChunkLoadError')) {
+        event.preventDefault();
+        console.warn('[GlobalErrorHandler] Chunk load error, auto-reloading...');
+        window.location.reload();
+        return;
+      }
+      console.error('Global error:', event.error);
       // Skip transient JSON parse errors from fetch (e.g. during hot reload)
       if (msg.includes('is not valid JSON') || msg.includes('Unexpected token')) return;
       // Only show errors in development or for critical errors
@@ -104,6 +126,13 @@ export function GlobalErrorHandler() {
 
     const handleRejection = (event: PromiseRejectionEvent) => {
       const msg = event.reason?.message || String(event.reason);
+      // Auto-recover from chunk load errors
+      if (msg.includes('Loading chunk') || msg.includes('Failed to load chunk') || msg.includes('ChunkLoadError')) {
+        event.preventDefault();
+        console.warn('[GlobalErrorHandler] Chunk load rejection, auto-reloading...');
+        window.location.reload();
+        return;
+      }
       console.error('Unhandled promise rejection:', event.reason);
       // Skip transient fetch/network errors (e.g. during hot reload, aborted requests)
       if (msg.includes('is not valid JSON') || msg.includes('Unexpected token') || msg.includes('aborted') || msg.includes('Failed to fetch')) {

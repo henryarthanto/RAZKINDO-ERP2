@@ -64,6 +64,32 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/api/pwa/icon?size=180" />
         <link rel="apple-touch-icon" sizes="152x152" href="/api/pwa/icon?size=152" />
         <link rel="apple-touch-icon" sizes="120x120" href="/api/pwa/icon?size=120" />
+        {/* Auto-recovery for chunk load failures (stale cache after deployment) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                var chunkRetryCount = 0;
+                var MAX_CHUNK_RETRIES = 3;
+                function handleChunkError(event) {
+                  var msg = '';
+                  if (event && event.message) msg = event.message;
+                  else if (event && event.reason && event.reason.message) msg = event.reason.message;
+                  if ((msg.indexOf('Loading chunk') !== -1 || msg.indexOf('Failed to load chunk') !== -1 || msg.indexOf('ChunkLoadError') !== -1) && chunkRetryCount < MAX_CHUNK_RETRIES) {
+                    chunkRetryCount++;
+                    console.warn('[ChunkLoadError] Stale chunk detected (attempt ' + chunkRetryCount + '/' + MAX_CHUNK_RETRIES + '), reloading...');
+                    event.preventDefault && event.preventDefault();
+                    setTimeout(function() {
+                      window.location.reload();
+                    }, 500);
+                  }
+                }
+                window.addEventListener('error', handleChunkError);
+                window.addEventListener('unhandledrejection', handleChunkError);
+              })();
+            `,
+          }}
+        />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
