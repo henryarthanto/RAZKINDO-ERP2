@@ -13,26 +13,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Prompt minimal 3 karakter' }, { status: 400 });
     }
 
-    // Dynamic import to avoid bundling in client
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
-
     const enhancedPrompt = `Professional product photography of ${prompt.trim()}, clean white background, studio lighting, high quality, detailed, e-commerce style`;
 
-    const response = await zai.images.generations.create({
-      prompt: enhancedPrompt,
-      size: '1024x1024',
+    // Return placeholder SVG
+    const svgImage = generatePlaceholderSVG(enhancedPrompt);
+
+    return NextResponse.json({
+      imageUrl: svgImage,
+      isPlaceholder: true,
+      message: 'AI image generation memerlukan API tambahan (OpenAI/Stability AI). Hubungi admin untuk mengaktifkan.',
     });
-
-    const imageBase64 = response.data[0]?.base64;
-    if (!imageBase64) {
-      return NextResponse.json({ error: 'Gagal generate gambar' }, { status: 500 });
-    }
-
-    // Return as data URL for direct use in img src
-    const dataUrl = `data:image/png;base64,${imageBase64}`;
-
-    return NextResponse.json({ imageUrl: dataUrl });
   } catch (error: any) {
     console.error('Generate image error:', error);
     return NextResponse.json(
@@ -40,4 +30,19 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function generatePlaceholderSVG(prompt: string): string {
+  const shortPrompt = prompt.length > 50 ? prompt.substring(0, 50) + '...' : prompt;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+    <rect width="400" height="400" fill="#f0f0f0"/>
+    <text x="200" y="180" text-anchor="middle" font-family="Arial" font-size="16" fill="#666">🎨 AI Image</text>
+    <text x="200" y="210" text-anchor="middle" font-family="Arial" font-size="12" fill="#999">${escapeXml(shortPrompt)}</text>
+    <text x="200" y="260" text-anchor="middle" font-family="Arial" font-size="11" fill="#bbb">Requires Image Gen API</text>
+  </svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
+function escapeXml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

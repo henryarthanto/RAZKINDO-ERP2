@@ -591,8 +591,7 @@ async function askLLM(
   history: { role: string; content: string }[],
   financialContext?: string | null,
 ): Promise<string> {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default;
-  const zai = await ZAI.create();
+  const { geminiChat } = await import('@/lib/gemini');
 
   const today = format(new Date(), 'EEEE, dd MMMM yyyy', { locale: id });
 
@@ -636,16 +635,18 @@ CONTOH ANALISIS:
 - "perbaiki selisih data yang ditemukan" → Analisa discrepancy, rekomendasikan fix spesifik per transaksi
 - "penyebab selisih di data keuangan" → Root cause analysis, identifikasi pola dan korelasi`;
 
-  // Build messages array
-  const messages: any[] = [
-    { role: 'system', content: systemPrompt },
-  ];
+  // Build messages array for Gemini
+  const messages: { role: string; content: string }[] = [];
 
-  // If financial context is available, inject it as a system-level data context
+  // If financial context is available, inject it as a data context message
   if (financialContext) {
     messages.push({
-      role: 'system',
+      role: 'user',
       content: `DATA KEUANGAN TERKINI YANG DAPAT KAMU ANALISA:\n\n${financialContext}\n\nGunakan data di atas untuk menjawab pertanyaan user. Berikan analisis mendalam, bukan hanya merangkum data. Identifikasi pola, berikan insight, dan rekomendasikan tindakan.`
+    });
+    messages.push({
+      role: 'assistant',
+      content: 'Baik, saya sudah memahami data keuangan terkini. Silakan tanyakan apa saja dan saya akan analisis berdasarkan data tersebut.'
     });
   }
 
@@ -654,12 +655,7 @@ CONTOH ANALISIS:
   messages.push({ role: 'user', content: message });
 
   try {
-    const completion = await zai.chat.completions.create({
-      messages,
-      thinking: { type: 'disabled' }
-    });
-
-    return completion.choices[0]?.message?.content || 'Maaf, saya tidak bisa merespons saat ini. Coba lagi nanti.';
+    return await geminiChat(systemPrompt, messages);
   } catch (err: any) {
     console.error('LLM error:', err);
     return '⚠️ AI sedang tidak tersedia. Silakan coba lagi dalam beberapa saat.';

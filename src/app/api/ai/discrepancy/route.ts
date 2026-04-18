@@ -354,8 +354,7 @@ async function adjustDiscrepancies(userId: string) {
 // =====================================================================
 
 async function findRootCause(discrepancyData: any) {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default;
-  const zai = await ZAI.create();
+  const { geminiChat } = await import('@/lib/gemini');
 
   // Build context string from discrepancy data
   const contextLines: string[] = [];
@@ -431,15 +430,11 @@ FORMAT JAWABAN:
 4. ⚡ **Tindakan Segera** — Apa yang harus dilakukan SEKARANG`;
 
   try {
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Analisa akar penyebab discrepancy berikut dan berikan diagnosis mendalam:\n\n${contextLines.join('\n')}` },
-      ],
-      thinking: { type: 'disabled' },
-    });
-
-    return completion.choices[0]?.message?.content || 'Gagal menganalisis akar penyebab.';
+    const userMessage = `Analisa akar penyebab discrepancy berikut dan berikan diagnosis mendalam:\n\n${contextLines.join('\n')}`;
+    const result = await geminiChat(systemPrompt, [
+      { role: 'user', content: userMessage }
+    ]);
+    return result || 'Gagal menganalisis akar penyebab.';
   } catch (err: any) {
     console.error('Root cause LLM error:', err);
     return '⚠️ AI sedang tidak tersedia untuk analisis akar penyebab. Coba lagi nanti.';

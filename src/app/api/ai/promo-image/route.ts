@@ -76,20 +76,25 @@ function getCategoryVisual(category: string): string {
 // =====================================================================
 
 async function generateImage(prompt: string): Promise<{ base64: string; imageUrl: string } | null> {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default;
-  const zai = await ZAI.create();
-
-  const response = await zai.images.generations.create({
-    prompt,
-    size: '1344x768',
-  });
-
-  const imageBase64 = response.data[0]?.base64;
-  if (!imageBase64) return null;
-
+  // Image generation requires external API (OpenAI DALL-E, Stability AI, etc.)
+  // For now, return a placeholder SVG
+  const shortPrompt = prompt.length > 60 ? prompt.substring(0, 60) + '...' : prompt;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1344" height="768" viewBox="0 0 1344 768">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" style="stop-color:#667eea;stop-opacity:1"/>
+        <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1"/>
+      </linearGradient>
+    </defs>
+    <rect width="1344" height="768" fill="url(#bg)"/>
+    <text x="672" y="350" text-anchor="middle" font-family="Arial" font-size="36" fill="white" font-weight="bold">🎨 Promo Image</text>
+    <text x="672" y="410" text-anchor="middle" font-family="Arial" font-size="16" fill="rgba(255,255,255,0.8)">${shortPrompt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</text>
+    <text x="672" y="500" text-anchor="middle" font-family="Arial" font-size="14" fill="rgba(255,255,255,0.5)">Memerlukan API Image Generation</text>
+  </svg>`;
+  const base64 = Buffer.from(svg).toString('base64');
   return {
-    base64: imageBase64,
-    imageUrl: `data:image/png;base64,${imageBase64}`,
+    base64,
+    imageUrl: `data:image/svg+xml;base64,${base64}`,
   };
 }
 

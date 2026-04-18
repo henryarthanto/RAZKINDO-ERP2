@@ -183,16 +183,12 @@ export default function AIChatPanel() {
 
   const handleTTS = async (text: string) => {
     // Stop any current playback
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-      setPlayingId(null);
-    }
+    stopTTS();
 
     // Strip markdown for speech
     const cleanText = text
       .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/[📊📈💰📦📋⚠️🟢🔴🤖👤📝✅⏳📰🏷️]/g, '')
+      .replace(/[📊📈💰📦📋⚠️🟢🔴🤖👤📝✅⏳📰🏷️🎨🔍💡🎯⚡]/g, '')
       .replace(/---/g, '')
       .replace(/\n{2,}/g, '. ')
       .replace(/\n/g, ', ')
@@ -205,27 +201,51 @@ export default function AIChatPanel() {
       const idx = messages.findIndex(m => m.content === text);
       setPlayingId(idx >= 0 ? idx : -1);
 
-      const res = await fetch('/api/ai/tts?XTransformPort=3000', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${(() => { try { const s = JSON.parse(localStorage.getItem('razkindo-auth') || '{}'); return s?.state?.token || ''; } catch { return ''; } })()}` },
-        body: JSON.stringify({ text: cleanText, voice: 'tongtong', speed: 1.0 })
-      });
+      // Use browser's built-in SpeechSynthesis (works offline, free, no API needed)
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = 'id-ID';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
 
-      if (!res.ok) throw new Error('TTS failed');
+        // Try to find Indonesian voice
+        const voices = window.speechSynthesis.getVoices();
+        const idVoice = voices.find(v => v.lang.startsWith('id')) || voices.find(v => v.lang.startsWith('ms')) || null;
+        if (idVoice) utterance.voice = idVoice;
 
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      currentAudioRef.current = audio;
-      audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(url); };
-      audio.onerror = () => { setPlayingId(null); URL.revokeObjectURL(url); };
-      audio.play().catch(() => setPlayingId(null));
+        utterance.onend = () => setPlayingId(null);
+        utterance.onerror = () => setPlayingId(null);
+
+        // Store reference for stopTTS
+        currentAudioRef.current = null as any;
+        (window as any).__currentUtterance = utterance;
+
+        window.speechSynthesis.speak(utterance);
+      } else {
+        // Fallback: try server TTS
+        const res = await fetch('/api/ai/tts?XTransformPort=3000', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${(() => { try { const s = JSON.parse(localStorage.getItem('razkindo-auth') || '{}'); return s?.state?.token || ''; } catch { return ''; } })()}` },
+          body: JSON.stringify({ text: cleanText, voice: 'tongtong', speed: 1.0 })
+        });
+
+        const data = await res.json();
+        if (data.useBrowserTTS) {
+          // Server says use browser TTS
+          setPlayingId(null);
+          return;
+        }
+      }
     } catch {
       setPlayingId(null);
     }
   };
 
   const stopTTS = () => {
+    // Stop browser SpeechSynthesis
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
