@@ -796,19 +796,59 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
       </Dialog>
 
       {/* ======================================================= */}
-      {/* SERVER STORAGE OVERVIEW (existing)                       */}
+      {/* SERVER STORAGE OVERVIEW (Docker-aware)                    */}
       {/* ======================================================= */}
-      <Card className="border-emerald-500/30">
+      <Card className={cn("border-emerald-500/30", storageData?.isDocker && "border-blue-500/30")}>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Server className="w-4 h-4 text-emerald-500" />
-            Storage Server Z.ai
+            {storageData?.isDocker ? 'Storage Docker Container' : 'Storage Server Lokal'}
           </CardTitle>
-          <CardDescription>Informasi penggunaan storage pada server</CardDescription>
+          <CardDescription>
+            {storageData?.isDocker
+              ? 'Info storage container Docker — data ERP tersimpan di Supabase Cloud'
+              : 'Informasi penggunaan storage pada server'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {disk ? (
+          {storageData?.isDocker ? (
             <>
+              {/* Docker mode — show minimal container info + emphasize Supabase */}
+              <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                <div className="flex items-start gap-3">
+                  <Cloud className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-medium text-sm text-blue-700 dark:text-blue-300">Data tersimpan di Supabase Cloud</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                      Aplikasi berjalan di Docker container. Semua data ERP (transaksi, produk, pelanggan, keuangan) tersimpan di database Supabase Cloud — bukan di disk lokal.
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Lihat tab <strong>Kuota Supabase</strong> di bawah untuk info penggunaan storage database.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {disk && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <p className="text-xs text-muted-foreground">Container Disk</p>
+                    <p className="font-bold text-lg">{disk.totalFormatted}</p>
+                    <p className="text-[10px] text-muted-foreground">{disk.usedFormatted} terpakai</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <p className="text-xs text-muted-foreground">Container Tersedia</p>
+                    <p className="font-bold text-lg text-emerald-500">{disk.availableFormatted}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <p className="text-xs text-muted-foreground">Container Usage</p>
+                    <p className={cn("font-bold text-lg", disk.percent > 80 ? "text-red-500" : "text-amber-500")}>{disk.percent}%</p>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : disk ? (
+            <>
+              {/* Native mode — show full disk info */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium">Penggunaan Disk</span>

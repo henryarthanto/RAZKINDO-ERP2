@@ -74,9 +74,12 @@ export async function GET(request: NextRequest) {
 
     const projectRoot = process.cwd();
 
+    // Detect if running inside Docker container
+    const isDocker = existsSync('/.dockerenv') || process.env.HOSTNAME === '0.0.0.0';
+
     // Run disk info, directory sizes, and DB queries IN PARALLEL
     const [diskInfo, dirSizes, tableCounts, cleanableData] = await Promise.all([
-      // 1. Disk info (fast execSync)
+      // 1. Disk info — show container disk if Docker, real disk if native
       (async () => {
         try {
           const dfOutput = execSync("df -B1 / | tail -1", { encoding: 'utf-8', timeout: 3000 });
@@ -89,6 +92,8 @@ export async function GET(request: NextRequest) {
               total: totalBytes, used: usedBytes, available: availableBytes,
               totalFormatted: formatBytes(totalBytes), usedFormatted: formatBytes(usedBytes), availableFormatted: formatBytes(availableBytes),
               percent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0,
+              isDocker,
+              label: isDocker ? 'Docker Container' : 'Local Disk',
             };
           }
           return null;
@@ -97,6 +102,10 @@ export async function GET(request: NextRequest) {
 
       // 2. Directory sizes (async, parallel)
       (async () => {
+        // Skip directory sizes in Docker — they're inside container and not meaningful
+        if (isDocker) {
+          return { totalSize: 0, directories: [] };
+        }
         const directories = [
           { name: 'Source Code (src)', path: join(projectRoot, 'src') },
           { name: 'Build Cache (.next)', path: join(projectRoot, '.next') },
@@ -188,9 +197,10 @@ export async function GET(request: NextRequest) {
     const projectTotal = dirSizes.totalSize;
     const result = {
       disk: diskInfo,
-      project: { totalSize: projectTotal, totalFormatted: formatBytes(projectTotal), directories: dirSizes.directories },
+      project: { totalSize: projectTotal, totalFormatted: formatBytes(projectTotal), directories: dirSizes.directories, isDocker },
       database: { type: 'Supabase (PostgreSQL)', host: dbHost, region: dbRegion, dbName: 'postgres', totalTables: Object.keys(tableCounts).length, tableCounts },
       cleanable: cleanableData,
+      isDocker,
     };
 
     // Cache the result
