@@ -354,7 +354,11 @@ async function adjustDiscrepancies(userId: string) {
 // =====================================================================
 
 async function findRootCause(discrepancyData: any) {
-  const { geminiChat } = await import('@/lib/gemini');
+  const { chatCompletion, isAvailable } = await import('@/lib/gemini');
+
+  if (!isAvailable()) {
+    return '⚠️ AI belum dikonfigurasi. Tambahkan GEMINI_API_KEY di file .env untuk analisis akar penyebab otomatis.';
+  }
 
   // Build context string from discrepancy data
   const contextLines: string[] = [];

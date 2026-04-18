@@ -591,7 +591,11 @@ async function askLLM(
   history: { role: string; content: string }[],
   financialContext?: string | null,
 ): Promise<string> {
-  const { geminiChat } = await import('@/lib/gemini');
+  const { chatCompletion, isAvailable } = await import('@/lib/gemini');
+
+  if (!isAvailable()) {
+    return '⚠️ AI belum dikonfigurasi. Tambahkan GEMINI_API_KEY di file .env untuk mengaktifkan fitur AI chat.';
+  }
 
   const today = format(new Date(), 'EEEE, dd MMMM yyyy', { locale: id });
 
@@ -636,17 +640,15 @@ CONTOH ANALISIS:
 - "penyebab selisih di data keuangan" → Root cause analysis, identifikasi pola dan korelasi`;
 
   // Build messages array for Gemini
-  const messages: { role: string; content: string }[] = [];
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: systemPrompt },
+  ];
 
-  // If financial context is available, inject it as a data context message
+  // If financial context is available, inject it as a system-level data context
   if (financialContext) {
     messages.push({
-      role: 'user',
+      role: 'system',
       content: `DATA KEUANGAN TERKINI YANG DAPAT KAMU ANALISA:\n\n${financialContext}\n\nGunakan data di atas untuk menjawab pertanyaan user. Berikan analisis mendalam, bukan hanya merangkum data. Identifikasi pola, berikan insight, dan rekomendasikan tindakan.`
-    });
-    messages.push({
-      role: 'assistant',
-      content: 'Baik, saya sudah memahami data keuangan terkini. Silakan tanyakan apa saja dan saya akan analisis berdasarkan data tersebut.'
     });
   }
 
@@ -655,9 +657,10 @@ CONTOH ANALISIS:
   messages.push({ role: 'user', content: message });
 
   try {
-    return await geminiChat(systemPrompt, messages);
+    const result = await chatCompletion({ messages });
+    return result.content || 'Maaf, saya tidak bisa merespons saat ini. Coba lagi nanti.';
   } catch (err: any) {
-    console.error('LLM error:', err);
+    console.error('Gemini error:', err);
     return '⚠️ AI sedang tidak tersedia. Silakan coba lagi dalam beberapa saat.';
   }
 }
