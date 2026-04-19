@@ -23,10 +23,12 @@ export const POLLING_CONFIG = {
 // With WebSocket realtime sync (useRealtimeSync), polling is only a fallback
 // for when WebSocket is disconnected. Intervals are generous.
 export const MODULE_POLLING: Record<string, number> = {
-  // Events/notifications: 30s (fallback when WS disconnected)
-  events: 30_000,
+  // Events/notifications: 15s — critical for timely notifications
+  events: 15_000,
   // Dashboard: 300s — realtime sync handles most updates
   dashboard: 300_000,
+  // Chat: 10s — important for near-realtime messaging UX
+  chat: 10_000,
   // Everything else: no polling (on demand via WS invalidation)
 };
 

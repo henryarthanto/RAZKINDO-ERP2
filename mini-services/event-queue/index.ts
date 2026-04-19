@@ -3,7 +3,7 @@
 //
 // Optimizations over v1:
 //   1. Priority buckets (O(1) enqueue) instead of array sort every tick
-//   2. Batch processing — up to 10 events per 50ms tick (200 evt/s)
+//   2. Batch processing — up to 15 events per 30ms tick (500 evt/s)
 //   3. Lazy-initialized Supabase connection singleton
 //   4. Per-IP connection limit: 50 (for PWA customers behind NAT)
 //   5. Event deduplication — same type+payload within 2s window
@@ -81,8 +81,8 @@ const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 1000; // 1s, 2s, 4s
 const MAX_CONNECTIONS_PER_IP = 50;
 const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2MB
-const PROCESS_INTERVAL_MS = 50; // 20 ticks/second
-const BATCH_SIZE = 10; // events per tick
+const PROCESS_INTERVAL_MS = 30; // ~33 ticks/second
+const BATCH_SIZE = 15; // events per tick
 const DEDUP_WINDOW_MS = 2000;
 const METRICS_WINDOW_MS = 60_000; // 60-second rolling window
 const MAX_DEAD_LETTER_SIZE = 500;
@@ -1194,7 +1194,7 @@ io.on('connection', (socket) => {
 
 httpServer.listen(PORT, () => {
   console.log(`[EventQueue] v2 started on port ${PORT}`);
-  console.log(`[EventQueue] Config: batch=${BATCH_SIZE}/tick, interval=${PROCESS_INTERVAL_MS}ms, maxQueue=${MAX_QUEUE_SIZE}, maxIp=${MAX_CONNECTIONS_PER_IP}`);
+  console.log(`[EventQueue] Config: batch=${BATCH_SIZE}/tick, interval=${PROCESS_INTERVAL_MS}ms, maxQueue=${MAX_QUEUE_SIZE}, maxIp=${MAX_CONNECTIONS_PER_IP}, healthCheck=${HEALTH_CHECK_INTERVAL_MS}ms`);
   console.log(`[EventQueue] Endpoints:`);
   console.log(`  POST /enqueue                 — Add single event`);
   console.log(`  POST /api/events              — Add single or batch events`);
@@ -1206,8 +1206,48 @@ httpServer.listen(PORT, () => {
   console.log(`[EventQueue] Socket events: register, event, bulk-events`);
 });
 
-// Start batch processor (every 50ms)
+// Start batch processor (every 30ms)
 const processInterval = setInterval(processTick, PROCESS_INTERVAL_MS);
+
+// =====================================================================
+// Connection Health Check — pings all connected sockets every 30s
+// Detects zombie connections where client disconnected but server
+// didn't receive the TCP close (e.g., mobile network drops, VPN
+// timeouts). Stale sockets are forcibly disconnected to free resources.
+// =====================================================================
+
+const HEALTH_CHECK_INTERVAL_MS = 30_000;
+const HEALTH_CHECK_STALE_THRESHOLD_MS = 120_000; // 2 minutes without register = stale
+
+const healthCheckInterval = setInterval(() => {
+  if (connectedUsers.size === 0) return;
+
+  const now = Date.now();
+  let staleCount = 0;
+
+  for (const [socketId, user] of connectedUsers) {
+    const age = now - user.joinedAt;
+    // Only check sockets that have been connected long enough to have registered
+    if (age > HEALTH_CHECK_STALE_THRESHOLD_MS && !user.userId && !user.userName) {
+      // Socket connected > 2min but never registered — likely zombie
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        console.warn(`[HealthCheck] Stale socket (never registered): ${socketId}`);
+        socket.disconnect(true);
+        staleCount++;
+      }
+    }
+  }
+
+  // Emit a ping to all connected sockets — clients that don't respond
+  // will be detected by socket.io's built-in pingTimeout (60s)
+  if (connectedUsers.size > 0 && staleCount === 0) {
+    io.emit('_health_ping', { ts: now });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[HealthCheck] Ping sent to ${connectedUsers.size} clients`);
+    }
+  }
+}, HEALTH_CHECK_INTERVAL_MS);
 
 // =====================================================================
 // Graceful Shutdown
@@ -1218,6 +1258,7 @@ function shutdown(): void {
   console.log(`[EventQueue] Queue state: ${totalQueueSize()} events in queue, ${deadLetterQueue.length} in dead-letter`);
 
   clearInterval(processInterval);
+  clearInterval(healthCheckInterval);
 
   // Stop accepting new connections
   io.close();

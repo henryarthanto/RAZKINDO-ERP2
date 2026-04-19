@@ -40,6 +40,8 @@ const CashbackManagementModule = dynamic(() => import('@/components/erp/Cashback
 const PWAOrdersModule = dynamic(() => import('@/components/erp/PWAOrdersModule'), { ssr: false });
 const ChangePasswordDialog = dynamic(() => import('@/components/erp/ChangePasswordDialog').then(m => ({ default: m.ChangePasswordDialog })), { ssr: false });
 const PWAInstallPrompt = dynamic(() => import('@/components/PWAInstallPrompt').then(m => ({ default: m.PWAInstallPrompt })), { ssr: false });
+const SalesChatPanel = dynamic(() => import('@/components/erp/SalesChatPanel'), { ssr: false });
+const ZaiAdminChat = dynamic(() => import('@/components/erp/ZaiAdminChat'), { ssr: false });
 
 // Lazy load heavy hooks to reduce initial module graph
 import { useRealtimeSync } from '@/hooks/use-realtime-sync';
@@ -52,7 +54,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Truck, DollarSign,
   UserCheck, Users, Settings, LogOut, X, Bell, BellOff, BellRing,
   BarChart3, RefreshCw as RefreshCwIcon, KeyRound, ClipboardList,
-  Wallet, Smartphone, Loader2,
+  Wallet, Smartphone, Loader2, MessageCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -203,6 +205,7 @@ function MainApp() {
     { id: 'pengguna', label: 'Pengguna', icon: Users, roles: ['super_admin'] },
     { id: 'cashback', label: 'Cashback', icon: Wallet, roles: ['super_admin'] },
     { id: 'pwa-orders', label: 'Order PWA', icon: Smartphone, roles: ['super_admin', 'sales'] },
+    { id: 'chat', label: 'Chat Pelanggan', icon: MessageCircle, roles: ['super_admin', 'sales'] },
     { id: 'pengaturan', label: 'Pengaturan', icon: Settings, roles: ['super_admin'] },
   ];
 
@@ -236,6 +239,7 @@ function MainApp() {
       case 'pengguna': return <UsersModule />;
       case 'cashback': return <CashbackManagementModule />;
       case 'pwa-orders': return <PWAOrdersModule />;
+      case 'chat': return <SalesChatPanel />;
       case 'pengaturan': return <SettingsModule />;
       default: return <DashboardModule />;
     }
@@ -323,7 +327,7 @@ function MainApp() {
 
       {sidebarOpen && <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
       <MobileBottomNav activeModule={activeModule} onNavigate={(id) => { setActiveModule(id); setSidebarOpen(false); }} onOpenMore={() => setSidebarOpen(true)} />
-      <Suspense fallback={null}><SalesTaskPopup onNavigate={(id) => handleNav(id)} /><ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} /><PWAInstallPrompt /></Suspense>
+      <Suspense fallback={null}><SalesTaskPopup onNavigate={(id) => handleNav(id)} /><ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} /><PWAInstallPrompt /><ZaiAdminChat /></Suspense>
     </div>
   );
 }

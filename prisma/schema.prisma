@@ -16,15 +16,15 @@ datasource db {
 
 model CustomRole {
   id          String   @id @default(cuid())
-  name        String   @unique  // e.g., "OB", "Sopir", "Security", "Driver"
+  name        String   @unique // e.g., "OB", "Sopir", "Security", "Driver"
   description String?
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
-  createdBy   User     @relation("CustomRoleCreator", fields: [createdById], references: [id])
-  users       User[]
-  
+
+  createdBy User   @relation("CustomRoleCreator", fields: [createdById], references: [id])
+  users     User[]
+
   @@map("custom_roles")
 }
 
@@ -40,70 +40,72 @@ model Unit {
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  
-  users       User[]
-  userUnits   UserUnit[]
+
+  users        User[]
+  userUnits    UserUnit[]
   transactions Transaction[]
-  products    UnitProduct[]
-  customers   Customer[]
-  cashBoxes   CashBox[]
-  courierCash CourierCash[]
-  
+  products     UnitProduct[]
+  customers    Customer[]
+  cashBoxes    CashBox[]
+  courierCash  CourierCash[]
+  chatRooms    ChatRoom[]
+
   @@map("units")
 }
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  password      String
-  name          String
-  phone         String?
-  role          String   // super_admin, sales, kurir, keuangan, or custom role name
-  customRoleId  String?  @map("custom_role_id") // If set, this is a non-ERP employee (OB, Sopir, etc.)
-  unitId        String?  @map("unit_id")
-  status        String   @default("pending") // pending, approved, rejected
-  canLogin      Boolean  @default(true) @map("can_login") // false for non-ERP employees (OB, sopir, etc.)
-  avatar        String?
-  lastSeenAt    DateTime? @map("last_seen_at")
-  currentPage   String?  @map("current_page")
-  lastAction    String?  @map("last_action")
-  isActive      Boolean  @default(true) @map("is_active")
-  
+  id           String    @id @default(cuid())
+  email        String    @unique
+  password     String
+  name         String
+  phone        String?
+  role         String // super_admin, sales, kurir, keuangan, or custom role name
+  customRoleId String?   @map("custom_role_id") // If set, this is a non-ERP employee (OB, Sopir, etc.)
+  unitId       String?   @map("unit_id")
+  status       String    @default("pending") // pending, approved, rejected
+  canLogin     Boolean   @default(true) @map("can_login") // false for non-ERP employees (OB, sopir, etc.)
+  avatar       String?
+  lastSeenAt   DateTime? @map("last_seen_at")
+  currentPage  String?   @map("current_page")
+  lastAction   String?   @map("last_action")
+  isActive     Boolean   @default(true) @map("is_active")
+
   // Courier commission (per delivery, based on customer distance)
-  nearCommission Float @default(0) @map("near_commission") // komisi untuk pengiriman dekat
-  farCommission  Float @default(0) @map("far_commission") // komisi untuk pengiriman jauh
+  nearCommission Float    @default(0) @map("near_commission") // komisi untuk pengiriman dekat
+  farCommission  Float    @default(0) @map("far_commission") // komisi untuk pengiriman jauh
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
-  
-  unit         Unit?        @relation(fields: [unitId], references: [id])
-  customRole   CustomRole?  @relation(fields: [customRoleId], references: [id])
-  userUnits    UserUnit[]
-  createdCustomRoles CustomRole[] @relation("CustomRoleCreator")
-  transactions Transaction[] @relation("TransactionCreator")
-  assignedDeliveries Transaction[] @relation("AssignedCourier")
-  payments     Payment[]
-  salaryPayments SalaryPayment[]
-  assignedReceivables Receivable[] @relation("AssignedReceivable")
-  courierCash      CourierCash[]
-  assignedCustomers Customer[] @relation("CustomerSales")
-  customerFollowUps CustomerFollowUp[] @relation("FollowUpCreator")
-  salesTargets      SalesTarget[]
-  assignedTasks     SalesTask[] @relation("TaskAssignedTo")
-  createdTasks      SalesTask[] @relation("TaskAssignedBy")
-  taskReports       SalesTaskReport[] @relation("TaskReportedBy")
-  
+
+  unit                Unit?              @relation(fields: [unitId], references: [id])
+  customRole          CustomRole?        @relation(fields: [customRoleId], references: [id])
+  userUnits           UserUnit[]
+  createdCustomRoles  CustomRole[]       @relation("CustomRoleCreator")
+  transactions        Transaction[]      @relation("TransactionCreator")
+  assignedDeliveries  Transaction[]      @relation("AssignedCourier")
+  payments            Payment[]
+  salaryPayments      SalaryPayment[]
+  assignedReceivables Receivable[]       @relation("AssignedReceivable")
+  courierCash         CourierCash[]
+  assignedCustomers   Customer[]         @relation("CustomerSales")
+  customerFollowUps   CustomerFollowUp[] @relation("FollowUpCreator")
+  salesTargets        SalesTarget[]
+  assignedTasks       SalesTask[]        @relation("TaskAssignedTo")
+  createdTasks        SalesTask[]        @relation("TaskAssignedBy")
+  taskReports         SalesTaskReport[]  @relation("TaskReportedBy")
+  salesChatRooms      ChatRoom[]         @relation("SalesChatRooms")
+
   @@index([role])
   @@index([customRoleId])
   @@map("users")
 }
 
 model PasswordReset {
-  id         String   @id @default(cuid())
-  identifier String   // bisa berisi email atau nomor telepon
-  code       String   // 6-digit recovery code
-  expiresAt  DateTime @map("expires_at") // code valid for 15 minutes
+  id         String    @id @default(cuid())
+  identifier String // bisa berisi email atau nomor telepon
+  code       String // 6-digit recovery code
+  expiresAt  DateTime  @map("expires_at") // code valid for 15 minutes
   usedAt     DateTime? @map("used_at")
-  createdAt  DateTime @default(now()) @map("created_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   @@index([identifier])
   @@index([code])
@@ -117,9 +119,9 @@ model Product {
   sku                 String?  @unique
   description         String?
   category            String?
-  unit                String?  // kg, pcs, box (main unit)
-  subUnit             String?  // pack, pcs, etc (sub unit within main unit)
-  conversionRate      Float    @default(1)  // how many subUnits per 1 main unit (e.g., 10 means 1 box = 10 pack)
+  unit                String? // kg, pcs, box (main unit)
+  subUnit             String? // pack, pcs, etc (sub unit within main unit)
+  conversionRate      Float    @default(1) // how many subUnits per 1 main unit (e.g., 10 means 1 box = 10 pack)
   globalStock         Float    @default(0) @map("global_stock") // stored in smallest unit (subUnit)
   avgHpp              Float    @default(0) @map("avg_hpp") // Cost price (HPP) per subUnit
   sellingPrice        Float    @default(0) @map("selling_price") // Selling price per main unit
@@ -132,10 +134,10 @@ model Product {
   isActive            Boolean  @default(true) @map("is_active")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
-  
-  unitProducts UnitProduct[]
+
+  unitProducts     UnitProduct[]
   transactionItems TransactionItem[]
-  
+
   @@map("products")
 }
 
@@ -146,43 +148,44 @@ model UnitProduct {
   stock     Float    @default(0)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  
-  unit      Unit     @relation(fields: [unitId], references: [id])
-  product   Product  @relation(fields: [productId], references: [id])
-  
+
+  unit    Unit    @relation(fields: [unitId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
   @@unique([unitId, productId])
   @@map("unit_products")
 }
 
 model Customer {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   name                String
-  code                String?  @unique  // Customer code for PWA access
+  code                String?   @unique // Customer code for PWA access
   phone               String?
   email               String?
   address             String?
-  unitId              String   @map("unit_id")
+  unitId              String    @map("unit_id")
   notes               String?
-  distance            String   @default("near") // near = dekat, far = jauh
-  totalOrders         Int      @default(0) @map("total_orders")
-  totalSpent          Float    @default(0) @map("total_spent")
-  cashbackBalance     Float    @default(0) @map("cashback_balance") // Customer cashback balance
-  cashbackType        String   @default("percentage") @map("cashback_type") // percentage or fixed
-  cashbackValue       Float    @default(0) @map("cashback_value") // Cashback value (percentage or fixed amount)
-  status              String   @default("active") // active, lost, inactive
-  assignedToId        String?  @map("assigned_to_id") // Sales yang menangani pelanggan ini
+  distance            String    @default("near") // near = dekat, far = jauh
+  totalOrders         Int       @default(0) @map("total_orders")
+  totalSpent          Float     @default(0) @map("total_spent")
+  cashbackBalance     Float     @default(0) @map("cashback_balance") // Customer cashback balance
+  cashbackType        String    @default("percentage") @map("cashback_type") // percentage or fixed
+  cashbackValue       Float     @default(0) @map("cashback_value") // Cashback value (percentage or fixed amount)
+  status              String    @default("active") // active, lost, inactive
+  assignedToId        String?   @map("assigned_to_id") // Sales yang menangani pelanggan ini
   lastTransactionDate DateTime? @map("last_transaction_date") // Tanggal transaksi terakhir
   lastFollowUpDate    DateTime? @map("last_follow_up_date") // Tanggal follow-up terakhir
   lostAt              DateTime? @map("lost_at") // Tanggal ditandai lost
-  lostReason          String?  @map("lost_reason") // Alasan lost
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  
-  unit                Unit     @relation(fields: [unitId], references: [id])
-  assignedTo          User?    @relation("CustomerSales", fields: [assignedToId], references: [id])
-  transactions        Transaction[]
-  followUps           CustomerFollowUp[]
-  
+  lostReason          String?   @map("lost_reason") // Alasan lost
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  unit         Unit               @relation(fields: [unitId], references: [id])
+  assignedTo   User?              @relation("CustomerSales", fields: [assignedToId], references: [id])
+  transactions Transaction[]
+  followUps    CustomerFollowUp[]
+  chatRooms    ChatRoom[]
+
   @@index([unitId])
   @@index([assignedToId])
   @@index([status])
@@ -190,6 +193,7 @@ model Customer {
   @@index([status, lastTransactionDate])
   @@index([status, lastFollowUpDate])
   @@index([assignedToId, status])
+  @@index([unitId, status, lastTransactionDate]) // Composite: sales pipeline
   @@map("customers")
 }
 
@@ -202,10 +206,10 @@ model UserUnit {
   userId    String   @map("user_id")
   unitId    String   @map("unit_id")
   createdAt DateTime @default(now()) @map("created_at")
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  unit      Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
   @@unique([userId, unitId])
   @@index([userId])
   @@index([unitId])
@@ -225,7 +229,7 @@ model PaymentProof {
   uploadedAt    DateTime @default(now()) @map("uploaded_at")
   viewed        Boolean  @default(false)
   createdAt     DateTime @default(now()) @map("created_at")
-  
+
   @@index([transactionId])
   @@index([uploadedAt])
   @@map("payment_proofs")
@@ -238,16 +242,16 @@ model PaymentProof {
 model CustomerFollowUp {
   id               String    @id @default(cuid())
   customerId       String    @map("customer_id")
-  type             String    // call, whatsapp, visit, email, other
+  type             String // call, whatsapp, visit, email, other
   note             String
-  outcome          String?   // interested, not_interested, promised_to_order, no_response, rescheduled, other
+  outcome          String? // interested, not_interested, promised_to_order, no_response, rescheduled, other
   nextFollowUpDate DateTime? @map("next_follow_up_date")
   createdById      String    @map("created_by_id") // Sales/Superadmin yang melakukan follow-up
-  
-  createdAt        DateTime  @default(now()) @map("created_at")
 
-  customer         Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  createdBy        User      @relation("FollowUpCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("FollowUpCreator", fields: [createdById], references: [id], onDelete: Cascade)
 
   @@index([customerId])
   @@index([createdById])
@@ -269,10 +273,10 @@ model Supplier {
   isActive      Boolean  @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
-  
+
   purchases       Transaction[]
   financeRequests FinanceRequest[]
-  
+
   @@index([name])
   @@index([isActive])
   @@map("suppliers")
@@ -283,66 +287,66 @@ model Supplier {
 // ================================
 
 model Transaction {
-  id               String    @id @default(cuid())
-  type             String    // sale, purchase, expense, salary
-  invoiceNo        String    @unique @map("invoice_no")
-  unitId           String    @map("unit_id")
-  createdById      String    @map("created_by_id")
-  customerId       String?   @map("customer_id")
-  supplierId       String?   @map("supplier_id")
-  courierId        String?   @map("courier_id")
-  
+  id          String  @id @default(cuid())
+  type        String // sale, purchase, expense, salary
+  invoiceNo   String  @unique @map("invoice_no")
+  unitId      String  @map("unit_id")
+  createdById String  @map("created_by_id")
+  customerId  String? @map("customer_id")
+  supplierId  String? @map("supplier_id")
+  courierId   String? @map("courier_id")
+
   // Amounts
-  total            Float     @default(0)
-  paidAmount       Float     @default(0) @map("paid_amount")
-  remainingAmount  Float     @default(0) @map("remaining_amount")
-  
+  total           Float @default(0)
+  paidAmount      Float @default(0) @map("paid_amount")
+  remainingAmount Float @default(0) @map("remaining_amount")
+
   // HPP & Profit
-  totalHpp         Float     @default(0) @map("total_hpp")
-  totalProfit      Float     @default(0) @map("total_profit")
-  
+  totalHpp    Float @default(0) @map("total_hpp")
+  totalProfit Float @default(0) @map("total_profit")
+
   // Financial Snapshot
-  hppPaid          Float     @default(0) @map("hpp_paid")
-  profitPaid       Float     @default(0) @map("profit_paid")
-  hppUnpaid        Float     @default(0) @map("hpp_unpaid")
-  profitUnpaid     Float     @default(0) @map("profit_unpaid")
-  
+  hppPaid      Float @default(0) @map("hpp_paid")
+  profitPaid   Float @default(0) @map("profit_paid")
+  hppUnpaid    Float @default(0) @map("hpp_unpaid")
+  profitUnpaid Float @default(0) @map("profit_unpaid")
+
   // Payment Info
-  paymentMethod    String?   @map("payment_method") // cash, piutang, tempo
-  
+  paymentMethod String? @map("payment_method") // cash, piutang, tempo
+
   // Status & Dates
-  status           String    @default("approved") // auto-approved
-  paymentStatus    String    @default("unpaid") @map("payment_status") // unpaid, partial, paid
-  dueDate          DateTime? @map("due_date")
-  deliveredAt      DateTime? @map("delivered_at")
-  
+  status        String    @default("approved") // auto-approved
+  paymentStatus String    @default("unpaid") @map("payment_status") // unpaid, partial, paid
+  dueDate       DateTime? @map("due_date")
+  deliveredAt   DateTime? @map("delivered_at")
+
   // Courier Commission
-  courierCommission Float    @default(0) @map("courier_commission") // calculated commission for this delivery
-  deliveryDistance  String?   @map("delivery_distance") // near or far, from customer
-  
+  courierCommission Float   @default(0) @map("courier_commission") // calculated commission for this delivery
+  deliveryDistance  String? @map("delivery_distance") // near or far, from customer
+
   // Optimistic concurrency
-  version          Int       @default(1)
+  version Int @default(1)
 
   // Notes
-  notes            String?
-  deliveryAddress  String?
-  
+  notes           String?
+  deliveryAddress String?
+
   // Timestamps
-  transactionDate  DateTime  @default(now()) @map("transaction_date")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  
+  transactionDate DateTime @default(now()) @map("transaction_date")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
   // Relations
-  unit              Unit     @relation(fields: [unitId], references: [id])
-  createdBy         User     @relation("TransactionCreator", fields: [createdById], references: [id])
-  courier           User?    @relation("AssignedCourier", fields: [courierId], references: [id], onDelete: SetNull)
-  customer          Customer? @relation(fields: [customerId], references: [id])
-  supplier          Supplier? @relation(fields: [supplierId], references: [id])
-  items             TransactionItem[]
-  payments          Payment[]
-  financeRequests   FinanceRequest[]
-  receivable        Receivable?
-  
+  unit            Unit              @relation(fields: [unitId], references: [id])
+  createdBy       User              @relation("TransactionCreator", fields: [createdById], references: [id])
+  courier         User?             @relation("AssignedCourier", fields: [courierId], references: [id], onDelete: SetNull)
+  customer        Customer?         @relation(fields: [customerId], references: [id])
+  supplier        Supplier?         @relation(fields: [supplierId], references: [id])
+  items           TransactionItem[]
+  payments        Payment[]
+  financeRequests FinanceRequest[]
+  receivable      Receivable?
+
   @@index([transactionDate])
   @@index([unitId])
   @@index([createdById])
@@ -353,25 +357,29 @@ model Transaction {
   @@index([paymentStatus])
   @@index([type, createdAt])
   @@index([transactionDate, unitId])
+  @@index([unitId, transactionDate, status]) // Composite: dashboard queries
+  @@index([type, paymentStatus, createdAt]) // Composite: finance reports
+  @@index([customerId, transactionDate]) // Composite: customer history
+  @@index([courierId, status]) // Composite: courier dashboard
   @@map("transactions")
 }
 
 model TransactionItem {
-  id           String   @id @default(cuid())
-  transactionId String  @map("transaction_id")
-  productId     String  @map("product_id")
-  productName   String  @map("product_name")
-  qty          Float
-  qtyInSubUnit Float    @default(0) @map("qty_in_sub_unit") // qty converted to subUnits for stock deduction
-  qtyUnitType  String   @default("sub") @map("qty_unit_type") // "main" or "sub" - which unit was used
-  price        Float    // Selling price
-  hpp          Float    // Cost price at transaction time
-  subtotal     Float
-  profit       Float
-  
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  product       Product    @relation(fields: [productId], references: [id])
-  
+  id            String @id @default(cuid())
+  transactionId String @map("transaction_id")
+  productId     String @map("product_id")
+  productName   String @map("product_name")
+  qty           Float
+  qtyInSubUnit  Float  @default(0) @map("qty_in_sub_unit") // qty converted to subUnits for stock deduction
+  qtyUnitType   String @default("sub") @map("qty_unit_type") // "main" or "sub" - which unit was used
+  price         Float // Selling price
+  hpp           Float // Cost price at transaction time
+  subtotal      Float
+  profit        Float
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id])
+
   @@index([productId])
   @@map("transaction_items")
 }
@@ -381,7 +389,7 @@ model Payment {
   transactionId String   @map("transaction_id")
   receivedById  String   @map("received_by_id")
   amount        Float
-  paymentMethod String   // cash, transfer, giro
+  paymentMethod String // cash, transfer, giro
   cashBoxId     String?  @map("cash_box_id")
   bankAccountId String?  @map("bank_account_id")
   bankName      String?  @map("bank_name")
@@ -393,13 +401,15 @@ model Payment {
   version       Int      @default(1)
   paidAt        DateTime @default(now()) @map("paid_at")
   createdAt     DateTime @default(now()) @map("created_at")
-  
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  receivedBy    User       @relation(fields: [receivedById], references: [id])
-  cashBox       CashBox?   @relation(fields: [cashBoxId], references: [id], onDelete: SetNull)
-  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
-  
+
+  transaction Transaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  receivedBy  User         @relation(fields: [receivedById], references: [id])
+  cashBox     CashBox?     @relation(fields: [cashBoxId], references: [id], onDelete: SetNull)
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+
   @@index([transactionId])
+  @@index([transactionId, paidAt]) // Composite: payment history
+  @@index([receivedById]) // FK index
   @@index([cashBoxId])
   @@index([bankAccountId])
   @@map("payments")
@@ -410,12 +420,12 @@ model Payment {
 // ================================
 
 model SalaryPayment {
-  id                 String   @id @default(cuid())
-  userId             String   @map("user_id")
-  periodStart        DateTime @map("period_start")
-  periodEnd          DateTime @map("period_end")
-  baseSalary         Float    @default(0) @map("base_salary")
-  
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+  baseSalary  Float    @default(0) @map("base_salary")
+
   // Salary components (JSON)
   // Penambah: transportAllowance, mealAllowance, overtimePay, incentive, otherAllowance
   // Pengurang: bpjsTk, bpjsKs, pph21, loanDeduction, absenceDeduction, lateDeduction, otherDeduction
@@ -425,43 +435,43 @@ model SalaryPayment {
   incentive          Float @default(0)
   otherAllowance     Float @default(0) @map("other_allowance")
   bonus              Float @default(0)
-  
-  bpjsTk             Float @default(0) @map("bpjs_tk")
-  bpjsKs             Float @default(0) @map("bpjs_ks")
-  pph21              Float @default(0)
-  loanDeduction      Float @default(0) @map("loan_deduction")
-  absenceDeduction   Float @default(0) @map("absence_deduction")
-  lateDeduction      Float @default(0) @map("late_deduction")
-  otherDeduction     Float @default(0) @map("other_deduction")
-  deduction          Float @default(0)
-  
-  totalAllowance     Float    @default(0) @map("total_allowance")
-  totalDeduction     Float    @default(0) @map("total_deduction")
-  totalAmount        Float    @default(0) @map("total_amount")
-  
+
+  bpjsTk           Float @default(0) @map("bpjs_tk")
+  bpjsKs           Float @default(0) @map("bpjs_ks")
+  pph21            Float @default(0)
+  loanDeduction    Float @default(0) @map("loan_deduction")
+  absenceDeduction Float @default(0) @map("absence_deduction")
+  lateDeduction    Float @default(0) @map("late_deduction")
+  otherDeduction   Float @default(0) @map("other_deduction")
+  deduction        Float @default(0)
+
+  totalAllowance Float @default(0) @map("total_allowance")
+  totalDeduction Float @default(0) @map("total_deduction")
+  totalAmount    Float @default(0) @map("total_amount")
+
   // Source of funds
-  sourceType         String   @default("cash") @map("source_type") // hpp_hand, profit_hand, cash, bank, cashbox
-  sourceUnitId       String?  @map("source_unit_id")
-  bankAccountId      String?  @map("bank_account_id") // Which bank account to pay from
-  cashBoxId          String?  @map("cash_box_id") // Which cash box to pay from
-  
+  sourceType    String  @default("cash") @map("source_type") // hpp_hand, profit_hand, cash, bank, cashbox
+  sourceUnitId  String? @map("source_unit_id")
+  bankAccountId String? @map("bank_account_id") // Which bank account to pay from
+  cashBoxId     String? @map("cash_box_id") // Which cash box to pay from
+
   // Finance request link
-  financeRequestId   String?  @unique @map("finance_request_id")
-  
-  version            Int      @default(1)
-  status             String   @default("pending") // pending, approved, paid, rejected
-  approvedById       String?  @map("approved_by_id")
-  approvedAt         DateTime? @map("approved_at")
-  paidAt             DateTime? @map("paid_at")
-  
-  notes              String?
-  
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financeRequestId String? @unique @map("finance_request_id")
+
+  version      Int       @default(1)
+  status       String    @default("pending") // pending, approved, paid, rejected
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+  paidAt       DateTime? @map("paid_at")
+
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   financeRequest FinanceRequest? @relation("SalaryFinanceRequest", fields: [financeRequestId], references: [id])
-  
+
   @@index([userId])
   @@index([status])
   @@index([periodStart, periodEnd])
@@ -474,7 +484,7 @@ model SalaryPayment {
 
 model BankAccount {
   id            String   @id @default(cuid())
-  name          String   // e.g., "BCA Utama", "Mandiri Operasional"
+  name          String // e.g., "BCA Utama", "Mandiri Operasional"
   bankName      String   @map("bank_name") // BCA, Mandiri, BRI, etc.
   accountNo     String   @map("account_no")
   accountHolder String   @map("account_holder")
@@ -485,18 +495,18 @@ model BankAccount {
   notes         String?
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
-  
-  fundTransfersFrom FundTransfer[] @relation("TransferFrom")
-  fundTransfersTo   FundTransfer[] @relation("TransferTo")
+
+  fundTransfersFrom FundTransfer[]   @relation("TransferFrom")
+  fundTransfersTo   FundTransfer[]   @relation("TransferTo")
   financeRequests   FinanceRequest[]
   payments          Payment[]
-  
+
   @@map("bank_accounts")
 }
 
 model CashBox {
   id        String   @id @default(cuid())
-  name      String   // e.g., "Brankas Kantor", "Kas Kecil"
+  name      String // e.g., "Brankas Kantor", "Kas Kecil"
   unitId    String?  @map("unit_id")
   balance   Float    @default(0)
   isActive  Boolean  @default(true) @map("is_active")
@@ -504,109 +514,115 @@ model CashBox {
   notes     String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  
-  unit        Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
-  
-  fundTransfersFrom FundTransfer[] @relation("TransferFromCash")
-  fundTransfersTo   FundTransfer[] @relation("TransferToCash")
+
+  unit Unit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  fundTransfersFrom FundTransfer[]   @relation("TransferFromCash")
+  fundTransfersTo   FundTransfer[]   @relation("TransferToCash")
   financeRequests   FinanceRequest[]
   payments          Payment[]
-  
+
   @@map("cash_boxes")
 }
 
 model FinanceRequest {
-  id              String    @id @default(cuid())
-  type            String    // purchase, salary, expense, courier_deposit, cash_to_bank
-  requestById     String    @map("request_by_id") // Who made the request
-  unitId          String?   @map("unit_id")
-  
+  id          String  @id @default(cuid())
+  type        String // purchase, salary, expense, courier_deposit, cash_to_bank
+  requestById String  @map("request_by_id") // Who made the request
+  unitId      String? @map("unit_id")
+
   // Amount details
-  amount          Float
-  description     String
-  
+  amount      Float
+  description String
+
   // For purchase requests
-  supplierId      String?   @map("supplier_id")
-  purchaseItems   String?   @map("purchase_items") // JSON array of items
-  
+  supplierId    String? @map("supplier_id")
+  purchaseItems String? @map("purchase_items") // JSON array of items
+
   // For courier deposits
-  transactionId   String?   @map("transaction_id") // Related transaction
-  courierId       String?   @map("courier_id")
-  
+  transactionId String? @map("transaction_id") // Related transaction
+  courierId     String? @map("courier_id")
+
   // Goods status for purchase requests
-  goodsStatus     String    @default("pending") @map("goods_status") // pending, received, partial
-  
+  goodsStatus String @default("pending") @map("goods_status") // pending, received, partial
+
   // Approval workflow
-  status          String    @default("pending") // pending, approved, rejected, processed
-  approvedById    String?   @map("approved_by_id")
-  approvedAt      DateTime? @map("approved_at")
-  
+  status       String    @default("pending") // pending, approved, rejected, processed
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+
   // Processing details
-  processedById   String?   @map("processed_by_id")
-  processedAt     DateTime? @map("processed_at")
-  
+  processedById String?   @map("processed_by_id")
+  processedAt   DateTime? @map("processed_at")
+
   // Source of funds (selected by Finance)
-  sourceType      String?   @map("source_type") // hpp_hand, profit_hand, bank, cashbox
-  fundSource      String?   @map("fund_source") // hpp_paid, profit_paid — Step 1: which pool the money comes from
-  sourceAccountId String?   @map("source_account_id") // Bank account ID or CashBox ID
-  bankAccountId   String?   @map("bank_account_id") // Specific bank account for payment
-  cashBoxId       String?   @map("cash_box_id") // Specific cashbox for payment
-  
+  sourceType      String? @map("source_type") // hpp_hand, profit_hand, bank, cashbox
+  fundSource      String? @map("fund_source") // hpp_paid, profit_paid — Step 1: which pool the money comes from
+  sourceAccountId String? @map("source_account_id") // Bank account ID or CashBox ID
+  bankAccountId   String? @map("bank_account_id") // Specific bank account for payment
+  cashBoxId       String? @map("cash_box_id") // Specific cashbox for payment
+
   // Payment type (debt or pay_now)
-  paymentType     String?   @map("payment_type") // debt, pay_now
-  
+  paymentType String? @map("payment_type") // debt, pay_now
+
   // Transfer details (for cash_to_bank)
-  fromCashBoxId   String?   @map("from_cash_box_id")
-  toBankAccountId String?   @map("to_bank_account_id")
-  
+  fromCashBoxId   String? @map("from_cash_box_id")
+  toBankAccountId String? @map("to_bank_account_id")
+
   notes           String?
-  rejectionReason String?   @map("rejection_reason")
-  
-  version         Int       @default(1)
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  
-  supplier        Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  transaction     Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-  bankAccount     BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
-  salaryPayment   SalaryPayment? @relation("SalaryFinanceRequest")
-  cashBox         CashBox? @relation(fields: [cashBoxId], references: [id], onDelete: SetNull)
+  rejectionReason String? @map("rejection_reason")
+
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplier         Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  transaction      Transaction?      @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  bankAccount      BankAccount?      @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  salaryPayment    SalaryPayment?    @relation("SalaryFinanceRequest")
+  cashBox          CashBox?          @relation(fields: [cashBoxId], references: [id], onDelete: SetNull)
   courierHandovers CourierHandover[]
-  
+
   @@index([requestById])
   @@index([status])
   @@index([type])
   @@index([courierId])
+  @@index([unitId]) // FK index
+  @@index([supplierId]) // FK index
   @@map("finance_requests")
 }
 
 model FundTransfer {
-  id               String   @id @default(cuid())
-  type             String   // cash_to_bank, bank_to_bank, bank_to_cash, cash_to_cash
-  
-  fromBankAccountId String?  @map("from_bank_account_id")
-  toBankAccountId   String?  @map("to_bank_account_id")
-  fromCashBoxId     String?  @map("from_cash_box_id")
-  toCashBoxId       String?  @map("to_cash_box_id")
-  
-  amount           Float
-  description      String?
-  referenceNo      String?  @map("reference_no")
-  
-  status           String   @default("pending") // pending, completed, cancelled
-  processedById    String?  @map("processed_by_id")
-  processedAt      DateTime? @map("processed_at")
-  
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  
+  id   String @id @default(cuid())
+  type String // cash_to_bank, bank_to_bank, bank_to_cash, cash_to_cash
+
+  fromBankAccountId String? @map("from_bank_account_id")
+  toBankAccountId   String? @map("to_bank_account_id")
+  fromCashBoxId     String? @map("from_cash_box_id")
+  toCashBoxId       String? @map("to_cash_box_id")
+
+  amount      Float
+  description String?
+  referenceNo String? @map("reference_no")
+
+  status        String    @default("pending") // pending, completed, cancelled
+  processedById String?   @map("processed_by_id")
+  processedAt   DateTime? @map("processed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   fromBankAccount BankAccount? @relation("TransferFrom", fields: [fromBankAccountId], references: [id], onDelete: SetNull)
   toBankAccount   BankAccount? @relation("TransferTo", fields: [toBankAccountId], references: [id], onDelete: SetNull)
-  fromCashBox     CashBox?    @relation("TransferFromCash", fields: [fromCashBoxId], references: [id], onDelete: SetNull)
-  toCashBox       CashBox?    @relation("TransferToCash", fields: [toCashBoxId], references: [id], onDelete: SetNull)
-  
+  fromCashBox     CashBox?     @relation("TransferFromCash", fields: [fromCashBoxId], references: [id], onDelete: SetNull)
+  toCashBox       CashBox?     @relation("TransferToCash", fields: [toCashBoxId], references: [id], onDelete: SetNull)
+
   @@index([status])
   @@index([type])
+  @@index([fromBankAccountId]) // FK index
+  @@index([toBankAccountId]) // FK index
+  @@index([fromCashBoxId]) // FK index
+  @@index([toCashBoxId]) // FK index
   @@map("fund_transfers")
 }
 
@@ -615,51 +631,52 @@ model FundTransfer {
 // ================================
 
 model CompanyDebt {
-  id              String    @id @default(cuid())
-  creditorName    String    @map("creditor_name") // Nama pihak yang berhutang (supplier, investor, dll)
-  debtType        String    @map("debt_type") // supplier, investor, other
+  id              String  @id @default(cuid())
+  creditorName    String  @map("creditor_name") // Nama pihak yang berhutang (supplier, investor, dll)
+  debtType        String  @map("debt_type") // supplier, investor, other
   description     String?
-  totalAmount     Float     @map("total_amount") // Total hutang
-  paidAmount      Float     @default(0) @map("paid_amount") // Total sudah dibayar
-  remainingAmount Float     @map("remaining_amount") // Sisa hutang
-  
-  dueDate         DateTime? @map("due_date")
-  
-  status          String    @default("active") // active, paid, cancelled
-  isActive        Boolean   @default(true) @map("is_active")
-  
-  notes           String?
-  createdById     String?   @map("created_by_id")
-  version         Int       @default(1)
-  
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  
-  payments        CompanyDebtPayment[]
-  
+  totalAmount     Float   @map("total_amount") // Total hutang
+  paidAmount      Float   @default(0) @map("paid_amount") // Total sudah dibayar
+  remainingAmount Float   @map("remaining_amount") // Sisa hutang
+
+  dueDate DateTime? @map("due_date")
+
+  status   String  @default("active") // active, paid, cancelled
+  isActive Boolean @default(true) @map("is_active")
+
+  notes       String?
+  createdById String? @map("created_by_id")
+  version     Int     @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  payments CompanyDebtPayment[]
+
   @@index([status])
   @@index([isActive])
   @@map("company_debts")
 }
 
 model CompanyDebtPayment {
-  id             String    @id @default(cuid())
-  debtId         String    @map("debt_id")
-  amount         Float
-  
+  id     String @id @default(cuid())
+  debtId String @map("debt_id")
+  amount Float
+
   // Payment source
-  paymentSource  String    @map("payment_source") // hpp_hand, profit_hand, bank, cashbox
-  bankAccountId  String?   @map("bank_account_id") // If paid from bank
-  cashBoxId      String?   @map("cash_box_id") // If paid from cashbox
-  
-  referenceNo    String?   @map("reference_no")
-  notes          String?
-  paidById       String?   @map("paid_by_id") // Who made the payment
-  paidAt         DateTime  @default(now()) @map("paid_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  
-  debt           CompanyDebt @relation(fields: [debtId], references: [id], onDelete: Cascade)
-  
+  paymentSource String  @map("payment_source") // hpp_hand, profit_hand, bank, cashbox
+  bankAccountId String? @map("bank_account_id") // If paid from bank
+  cashBoxId     String? @map("cash_box_id") // If paid from cashbox
+
+  referenceNo String?  @map("reference_no")
+  notes       String?
+  paidById    String?  @map("paid_by_id") // Who made the payment
+  paidAt      DateTime @default(now()) @map("paid_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  debt CompanyDebt @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  @@index([debtId]) // FK index
   @@map("company_debt_payments")
 }
 
@@ -668,63 +685,64 @@ model CompanyDebtPayment {
 // ================================
 
 model Receivable {
-  id               String    @id @default(cuid())
-  transactionId    String    @unique @map("transaction_id")
-  
+  id            String @id @default(cuid())
+  transactionId String @unique @map("transaction_id")
+
   // Debtor info (denormalized for quick access)
-  customerName     String?   @map("customer_name")
-  customerPhone    String?   @map("customer_phone")
-  
+  customerName  String? @map("customer_name")
+  customerPhone String? @map("customer_phone")
+
   // Amounts
-  totalAmount      Float     @map("total_amount")
-  paidAmount       Float     @default(0) @map("paid_amount")
-  remainingAmount  Float     @map("remaining_amount")
-  
+  totalAmount     Float @map("total_amount")
+  paidAmount      Float @default(0) @map("paid_amount")
+  remainingAmount Float @map("remaining_amount")
+
   // Assignment & Follow-up
-  assignedToId     String?   @map("assigned_to_id") // Karyawan/sales yang bertanggung jawab
-  priority         String    @default("normal") // low, normal, high, urgent
-  
+  assignedToId String? @map("assigned_to_id") // Karyawan/sales yang bertanggung jawab
+  priority     String  @default("normal") // low, normal, high, urgent
+
   // Status tracking
   status           String    @default("active") // active, paid, cancelled, bad_debt
   lastFollowUpAt   DateTime? @map("last_follow_up_at")
   lastFollowUpNote String?   @map("last_follow_up_note")
   nextFollowUpDate DateTime? @map("next_follow_up_date")
-  
+
   // Overdue tracking (computed)
-  overdueDays      Int       @default(0) @map("overdue_days")
-  reminderCount    Int       @default(0) @map("reminder_count")
-  lastReminderAt   DateTime? @map("last_reminder_at")
-  
+  overdueDays    Int       @default(0) @map("overdue_days")
+  reminderCount  Int       @default(0) @map("reminder_count")
+  lastReminderAt DateTime? @map("last_reminder_at")
+
   // Notes
-  notes            String?
-  createdById      String?   @map("created_by_id")
-  version          Int       @default(1)
-  
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  
-  transaction     Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  assignedTo      User?       @relation("AssignedReceivable", fields: [assignedToId], references: [id], onDelete: SetNull)
-  followUps       ReceivableFollowUp[]
-  
+  notes       String?
+  createdById String? @map("created_by_id")
+  version     Int     @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  transaction Transaction          @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  assignedTo  User?                @relation("AssignedReceivable", fields: [assignedToId], references: [id], onDelete: SetNull)
+  followUps   ReceivableFollowUp[]
+
   @@index([status])
   @@index([assignedToId])
   @@map("receivables")
 }
 
 model ReceivableFollowUp {
-  id            String    @id @default(cuid())
-  receivableId  String    @map("receivable_id")
-  type          String    // call, whatsapp, visit, email, other
-  note          String
-  outcome       String?   // promised_to_pay, no_response, dispute, partial_payment, rescheduled
-  promisedDate  DateTime? @map("promised_date") // Tanggal janji bayar
-  createdById   String    @map("created_by_id")
-  
-  createdAt     DateTime  @default(now()) @map("created_at")
-  
-  receivable    Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
-  
+  id           String    @id @default(cuid())
+  receivableId String    @map("receivable_id")
+  type         String // call, whatsapp, visit, email, other
+  note         String
+  outcome      String? // promised_to_pay, no_response, dispute, partial_payment, rescheduled
+  promisedDate DateTime? @map("promised_date") // Tanggal janji bayar
+  createdById  String    @map("created_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  receivable Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+
+  @@index([receivableId]) // FK index
   @@map("receivable_follow_ups")
 }
 
@@ -734,17 +752,18 @@ model ReceivableFollowUp {
 
 model Log {
   id        String   @id @default(cuid())
-  type      String   // activity, error, audit
+  type      String // activity, error, audit
   userId    String?
   action    String
   entity    String?
   entityId  String?
-  payload   String?  // JSON
+  payload   String? // JSON
   message   String?
   createdAt DateTime @default(now()) @map("created_at")
-  
+
   @@index([createdAt])
   @@index([userId, createdAt])
+  @@index([type, createdAt]) // Composite: audit trail filtering
   @@map("logs")
 }
 
@@ -755,7 +774,7 @@ model Log {
 model SalesTarget {
   id             String   @id @default(cuid())
   userId         String   @map("user_id") // Sales user
-  period         String   // monthly, quarterly, yearly
+  period         String // monthly, quarterly, yearly
   year           Int
   month          Int      @default(0) // 1-12, for monthly targets (0 = not monthly)
   quarter        Int      @default(0) // 1-4, for quarterly targets (0 = not quarterly)
@@ -765,9 +784,9 @@ model SalesTarget {
   notes          String?
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
-  
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, period, year, month, quarter])
   @@index([userId, period, status])
   @@map("sales_targets")
@@ -778,27 +797,27 @@ model SalesTarget {
 // ================================
 
 model SalesTask {
-  id             String    @id @default(cuid())
-  title          String    // Judul tugas
-  description    String?   // Deskripsi detail
-  type           String    @default("general") // general, visit, followup, prospecting, collection, other
-  priority       String    @default("normal")  // low, normal, high, urgent
-  
-  assignedToId   String    @map("assigned_to_id") // Sales yang ditugaskan
-  assignedById   String    @map("assigned_by_id") // Super admin yang memberi tugas
-  
+  id          String  @id @default(cuid())
+  title       String // Judul tugas
+  description String? // Deskripsi detail
+  type        String  @default("general") // general, visit, followup, prospecting, collection, other
+  priority    String  @default("normal") // low, normal, high, urgent
+
+  assignedToId String @map("assigned_to_id") // Sales yang ditugaskan
+  assignedById String @map("assigned_by_id") // Super admin yang memberi tugas
+
   status         String    @default("pending") // pending, in_progress, completed, cancelled
   dueDate        DateTime? @map("due_date") // Deadline tugas
   completedAt    DateTime? @map("completed_at") // Waktu selesai
   completionNote String?   @map("completion_note") // Catatan saat menyelesaikan
-  
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  
-  assignedTo     User     @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: Cascade)
-  assignedBy     User     @relation("TaskAssignedBy", fields: [assignedById], references: [id], onDelete: Cascade)
-  reports        SalesTaskReport[]
-  
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  assignedTo User              @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: Cascade)
+  assignedBy User              @relation("TaskAssignedBy", fields: [assignedById], references: [id], onDelete: Cascade)
+  reports    SalesTaskReport[]
+
   @@index([assignedToId, status])
   @@index([status])
   @@index([dueDate])
@@ -807,18 +826,18 @@ model SalesTask {
 }
 
 model SalesTaskReport {
-  id           String   @id @default(cuid())
-  taskId       String   @map("task_id")
-  reportedById String   @map("reported_by_id") // Sales yang melaporkan
-  status       String   // pending, in_progress, completed, cancelled
-  note         String   // Laporan/catatam
-  evidence     String?  // Bukti (deskripsi / link foto)
-  
-  createdAt    DateTime @default(now()) @map("created_at")
-  
-  task         SalesTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  reportedBy   User      @relation("TaskReportedBy", fields: [reportedById], references: [id])
-  
+  id           String  @id @default(cuid())
+  taskId       String  @map("task_id")
+  reportedById String  @map("reported_by_id") // Sales yang melaporkan
+  status       String // pending, in_progress, completed, cancelled
+  note         String // Laporan/catatam
+  evidence     String? // Bukti (deskripsi / link foto)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task       SalesTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  reportedBy User      @relation("TaskReportedBy", fields: [reportedById], references: [id])
+
   @@index([taskId])
   @@index([reportedById])
   @@map("sales_task_reports")
@@ -832,18 +851,18 @@ model CourierCash {
   id             String   @id @default(cuid())
   courierId      String   @map("courier_id")
   unitId         String   @map("unit_id")
-  balance        Float    @default(0)  // Current cash in hand
+  balance        Float    @default(0) // Current cash in hand
   totalCollected Float    @default(0) @map("total_collected") // Lifetime cash collected from deliveries
   totalHandover  Float    @default(0) @map("total_handover") // Lifetime cash handed over to brankas
   hppPending     Float    @default(0) @map("hpp_pending") // HPP portion of cash still in hand (not yet deposited to brankas)
   profitPending  Float    @default(0) @map("profit_pending") // Profit portion of cash still in hand (not yet deposited to brankas)
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
-  
-  courier        User     @relation(fields: [courierId], references: [id], onDelete: Cascade)
-  unit           Unit     @relation(fields: [unitId], references: [id])
-  handovers      CourierHandover[]
-  
+
+  courier   User              @relation(fields: [courierId], references: [id], onDelete: Cascade)
+  unit      Unit              @relation(fields: [unitId], references: [id])
+  handovers CourierHandover[]
+
   @@unique([courierId, unitId])
   @@map("courier_cash")
 }
@@ -861,10 +880,11 @@ model CourierHandover {
   processedAt      DateTime? @map("processed_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
-  
-  courierCash      CourierCash @relation(fields: [courierCashId], references: [id], onDelete: Cascade)
-  financeRequest   FinanceRequest? @relation(fields: [financeRequestId], references: [id])
-  
+
+  courierCash    CourierCash     @relation(fields: [courierCashId], references: [id], onDelete: Cascade)
+  financeRequest FinanceRequest? @relation(fields: [financeRequestId], references: [id])
+
+  @@index([courierCashId]) // FK index
   @@map("courier_handovers")
 }
 
@@ -874,13 +894,14 @@ model CourierHandover {
 
 model Event {
   id        String   @id @default(cuid())
-  type      String   // transaction_created, payment_received, stock_low, etc.
-  payload   String   // JSON
+  type      String // transaction_created, payment_received, stock_low, etc.
+  payload   String // JSON
   isRead    Boolean  @default(false) @map("is_read")
   createdAt DateTime @default(now()) @map("created_at")
-  
+
   @@index([createdAt])
   @@index([isRead])
+  @@index([isRead, createdAt]) // Composite: unread notifications
   @@map("events")
 }
 
@@ -897,7 +918,7 @@ model PushSubscription {
   deviceInfo String?  @map("device_info") // JSON: userAgent, platform, etc.
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
-  
+
   @@index([userId])
   @@map("push_subscriptions")
 }
@@ -909,10 +930,10 @@ model PushSubscription {
 model Setting {
   id        String   @id @default(cuid())
   key       String   @unique
-  value     String   // JSON
+  value     String // JSON
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  
+
   @@map("settings")
 }
 
@@ -921,17 +942,17 @@ model Setting {
 // ================================
 
 model CashbackConfig {
-  id                String   @id @default(cuid())
-  type              String   // percentage, fixed
-  value             Float    @default(0)
-  maxCashback       Float    @default(0) @map("max_cashback")
-  minOrder          Float    @default(0) @map("min_order")
-  referralBonusType String   @default("percentage") @map("referral_bonus_type")
-  referralBonusValue Float   @default(0) @map("referral_bonus_value")
-  isActive          Boolean  @default(true) @map("is_active")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-  
+  id                 String   @id @default(cuid())
+  type               String // percentage, fixed
+  value              Float    @default(0)
+  maxCashback        Float    @default(0) @map("max_cashback")
+  minOrder           Float    @default(0) @map("min_order")
+  referralBonusType  String   @default("percentage") @map("referral_bonus_type")
+  referralBonusValue Float    @default(0) @map("referral_bonus_value")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
   @@map("cashback_config")
 }
 
@@ -940,15 +961,16 @@ model CashbackLog {
   customerId    String   @map("customer_id")
   transactionId String?  @map("transaction_id")
   withdrawalId  String?  @map("withdrawal_id")
-  type          String   // earned, withdrawn, reversed, referral_bonus
+  type          String // earned, withdrawn, reversed, referral_bonus
   amount        Float
   description   String?
   createdAt     DateTime @default(now()) @map("created_at")
-  
+
   @@index([customerId])
   @@index([transactionId])
   @@index([withdrawalId])
   @@index([type])
+  @@index([customerId, type, createdAt]) // Composite: cashback history
   @@map("cashback_log")
 }
 
@@ -966,7 +988,7 @@ model CashbackWithdrawal {
   rejectionReason String?   @map("rejection_reason")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
-  
+
   @@index([customerId])
   @@index([status])
   @@map("cashback_withdrawal")
@@ -977,18 +999,65 @@ model CashbackWithdrawal {
 // ================================
 
 model CustomerReferral {
-  id                String   @id @default(cuid())
-  customerId        String   @map("customer_id") // Referrer
-  referralCustomerId String  @map("referral_customer_id") // Referred customer
-  referralCode      String?  @map("referral_code")
-  phone             String?
-  status            String   @default("pending") // pending, completed, rewarded
-  bonusAmount       Float    @default(0) @map("bonus_amount")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-  
+  id                 String   @id @default(cuid())
+  customerId         String   @map("customer_id") // Referrer
+  referralCustomerId String   @map("referral_customer_id") // Referred customer
+  referralCode       String?  @map("referral_code")
+  phone              String?
+  status             String   @default("pending") // pending, completed, rewarded
+  bonusAmount        Float    @default(0) @map("bonus_amount")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
   @@index([customerId])
   @@index([referralCustomerId])
   @@index([status])
   @@map("customer_referral")
+}
+
+// ================================
+// CHAT SYSTEM
+// ================================
+
+model ChatMessage {
+  id          String    @id @default(cuid())
+  roomId      String    @map("room_id")
+  senderType  String // 'sales', 'customer', 'system'
+  senderId    String    @map("sender_id")
+  senderName  String    @map("sender_name")
+  content     String    @db.Text
+  messageType String    @default("text") @map("message_type") // text, image, order_reference
+  metadata    String? // JSON - for order references, images, etc.
+  isRead      Boolean   @default(false) @map("is_read")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  chatRoom    ChatRoom? @relation(fields: [chatRoomId], references: [id])
+  chatRoomId  String?
+
+  @@index([roomId, createdAt])
+  @@index([senderId, senderType])
+  @@index([isRead, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatRoom {
+  id             String    @id @default(cuid())
+  customerId     String    @unique @map("customer_id")
+  salesId        String    @map("sales_id")
+  unitId         String    @map("unit_id")
+  lastMessage    String?   @map("last_message")
+  lastMessageAt  DateTime? @map("last_message_at")
+  customerUnread Int       @default(0) @map("customer_unread")
+  salesUnread    Int       @default(0) @map("sales_unread")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sales    User          @relation("SalesChatRooms", fields: [salesId], references: [id], onDelete: Cascade)
+  unit     Unit          @relation(fields: [unitId], references: [id])
+  messages ChatMessage[]
+
+  @@index([salesId, lastMessageAt])
+  @@index([unitId, lastMessageAt])
+  @@map("chat_rooms")
 }
