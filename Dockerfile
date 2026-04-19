@@ -19,7 +19,7 @@ RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 
 # Install dependencies — npm will pull correct native binaries for current arch
-RUN npm ci --legacy-peer-deps
+RUN npm install --legacy-peer-deps
 
 # Install event-queue deps
 COPY mini-services/event-queue/package.json ./mini-services/event-queue/
