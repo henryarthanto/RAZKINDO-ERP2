@@ -588,3 +588,99 @@ Stage Summary:
 - Idempotent: re-runs safely, skips existing records
 - All Prisma schema required fields properly populated
 - Login credentials: admin/admin123, budi/budi123, agus/agus123, siti/siti123
+
+---
+Task ID: 2-a
+Agent: Sub-agent (full-stack-developer)
+Task: Remove all "Supabase" text from UI, rename to "Database"
+
+Work Log:
+- Renamed `supabase` → `database` in MonitoringTab.tsx interfaces and references
+- Renamed `measureSupabaseLatency` → `measureDatabaseLatency` in system/metrics
+- Changed response key `supabase` → `database` in system/info and system/metrics
+- Updated all user-visible strings: "Latensi Database", "Penyimpanan Database", etc.
+
+Stage Summary:
+- 3 files modified, 0 TS errors
+
+---
+Task ID: 2-b
+Agent: Sub-agent (full-stack-developer)
+Task: Fix cashback management loading
+
+Work Log:
+- Fixed ConfigTab infinite loading: migration check failure caused undefined state
+- Fixed withdrawals empty: PostgREST joins on plain FK columns (no @relation) → manual joins
+- Added missing schema fields to CashbackWithdrawal: sourceType, bankAccountId, cashBoxId
+
+Stage Summary:
+- 3 root causes fixed, prisma db push needed for schema changes
+
+---
+Task ID: 2-c
+Agent: Sub-agent (full-stack-developer)
+Task: Fix dashboard loading
+
+Work Log:
+- Fixed TransactionItem order('created_at') → order('id') (field doesn't exist)
+- Fixed lowStockProducts: was returning array, component expected number → added lowStockCount
+
+Stage Summary:
+- 2 bugs fixed, 0 TS errors
+
+---
+Task ID: 3
+Agent: Sub-agent (full-stack-developer)
+Task: Fix AI chat panel appearance
+
+Work Log:
+- Redesigned FAB button to pill shape with label
+- Fixed CSS positioning conflicts
+- Added slideUp animation
+- Improved chat bubbles: proper colors, shadows, timestamps
+- Added typing indicator with text label
+- Improved quick actions with shadcn Button
+
+Stage Summary:
+- ZaiAdminChat.tsx significantly improved
+
+---
+Task ID: 4
+Agent: Sub-agent (full-stack-developer)
+Task: Restore broadcast feature in chat panel
+
+Work Log:
+- Created /api/chat/broadcast/route.ts (GET+POST)
+- Created BroadcastDialog.tsx component
+- Integrated into SalesChatPanel.tsx with broadcast button
+- 3 scope options: all, unit, selected customers
+
+Stage Summary:
+- Broadcast feature fully implemented
+
+---
+Task ID: 9
+Agent: Sub-agent (full-stack-developer)
+Task: Create seed data script
+
+Work Log:
+- Created scripts/seed-data.ts with realistic sample data
+- Includes: 1 unit, 1 admin + 3 users, 1 custom role, 5 products, 3 customers, 2 transactions, cashbox, settings
+- Idempotent design with upsert patterns
+- Run with: npx tsx scripts/seed-data.ts
+
+Stage Summary:
+- Complete seed data script ready
+
+---
+Task ID: 10
+Agent: Main Agent
+Task: Verify build, commit, and push
+
+Work Log:
+- Verified 0 TypeScript errors, 0 ESLint errors
+- Committed 21 files changed (2283 insertions, 189 deletions)
+- Pushed to GitHub main branch
+
+Stage Summary:
+- All changes successfully pushed
