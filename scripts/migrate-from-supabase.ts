@@ -15,13 +15,16 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // Supabase REST API config (from .env)
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const _supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const _supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
+if (!_supabaseUrl || !_supabaseKey) {
   console.error('❌ Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
   process.exit(1);
 }
+
+const SUPABASE_URL: string = _supabaseUrl;
+const SUPABASE_KEY: string = _supabaseKey;
 
 // Simple Supabase REST fetcher
 async function supabaseFetch(table: string, select = '*', order?: string, limit = 10000): Promise<any[]> {
