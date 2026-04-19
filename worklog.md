@@ -264,3 +264,44 @@ Stage Summary:
 - Auth and Storage still use real Supabase (unchanged)
 - RPC handlers unchanged (already using Prisma)
 - Data flow: snake_case API input → Prisma camelCase → prismaToSnakeCase output → existing toCamelCase in routes
+---
+Task ID: 11
+Agent: Main
+Task: Full bug and error audit
+
+Work Log:
+- TypeScript check: 0 errors (npx tsc --noEmit)
+- ESLint check: 0 errors (bun run lint)
+- Dev server: Running, GET / 200, GET /api/health 200
+
+**Import Audit:**
+- SalesChatPanel: exists at src/components/erp/SalesChatPanel.tsx, imported in AppShell.tsx (lazy, ssr:false) ✅
+- ZaiAdminChat: exists at src/components/erp/ZaiAdminChat.tsx, imported in AppShell.tsx (lazy, ssr:false) ✅
+- CustomerChatBubble: exists at src/components/erp/CustomerChatBubble.tsx, imported in c/[code]/page.tsx (lazy, ssr:false) ✅
+- AIChatPanel: exists but NOT imported anywhere (orphaned, as intended) ✅
+- AppShell: properly renders SalesChatPanel in 'chat' module case, ZaiAdminChat in Suspense block ✅
+- 'chat' module defined in navigation array with roles super_admin + sales ✅
+
+**Supabase Audit:**
+- supabase-client.ts: Client-side auth/storage only (keep for auth) ✅
+- supabase-rest.ts: Used only by supabase.ts for auth/storage/channel ✅
+- setup-schema/route.ts: Legacy route, handles missing Supabase config gracefully ✅
+- NO api routes use Supabase REST for data queries — all go through PrismaQueryBuilder ✅
+
+**Z.ai Integration:**
+- /api/ai/zai-chat/route.ts: Uses z-ai-web-dev-sdk via dynamic import, singleton caching, retry logic ✅
+- Auth verified via verifyAuthUser + super_admin role check ✅
+- Smart data context injection via financial-snapshot ✅
+
+**Chat System:**
+- CustomerChatBubble: Proper React hooks, apiFetch usage, room creation flow ✅
+- SalesChatPanel: TanStack Query for rooms/messages, send mutation, auto-scroll, mobile responsive ✅
+- Chat API routes: Use Prisma chatRoom/chatMessage models ✅
+
+Stage Summary:
+- 0 TypeScript errors, 0 ESLint errors
+- All component imports verified and working
+- Supabase only used for auth/storage (no data queries)
+- All data goes through Prisma → local PostgreSQL
+- Z.ai, chat system, and all features properly wired
+- Dev server running successfully (200 OK)
