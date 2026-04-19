@@ -18,12 +18,17 @@ RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json ./
 
-# Install dependencies — npm will pull correct native binaries for current arch
-RUN npm install --legacy-peer-deps
+# Install dependencies — use host network for better connectivity
+# Add retry config to handle ECONNRESET on slow connections
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000
+
+RUN --network=host npm install --legacy-peer-deps
 
 # Install event-queue deps
 COPY mini-services/event-queue/package.json ./mini-services/event-queue/
-RUN cd mini-services/event-queue && npm install
+RUN --network=host npm install --prefix mini-services/event-queue
 
 # ---- Stage 2: Builder ----
 FROM node:22-alpine AS builder
