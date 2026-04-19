@@ -16,14 +16,14 @@ WORKDIR /app
 # Install build tools needed for native modules (sharp, prisma) on Alpine/ARM
 RUN apk add --no-cache python3 make g++
 
-COPY package.json bun.lock ./
+COPY package.json package-lock.json ./
 
 # Install dependencies — npm will pull correct native binaries for current arch
-RUN npm install --legacy-peer-deps 2>&1 | tail -5
+RUN npm ci --legacy-peer-deps
 
 # Install event-queue deps
-COPY mini-services/event-queue/package.json mini-services/event-queue/bun.lock* ./mini-services/event-queue/
-RUN cd mini-services/event-queue && npm install 2>&1 | tail -3
+COPY mini-services/event-queue/package.json ./mini-services/event-queue/
+RUN cd mini-services/event-queue && npm install
 
 # ---- Stage 2: Builder ----
 FROM node:22-alpine AS builder
