@@ -16,6 +16,24 @@ const customRoleSchema = z.object({
   customRoleId: z.string().min(1),
 });
 
+/**
+ * Helper: check if an error is a unique constraint violation.
+ * PrismaQueryBuilder wraps Prisma errors with code 'PGRST116',
+ * but the original Prisma P2002 message contains "Unique constraint".
+ * We also check for Postgres error code 23505 in the message.
+ */
+function isUniqueConstraintError(error: any): boolean {
+  if (!error) return false;
+  const msg = error.message || String(error);
+  return (
+    msg.includes('Unique constraint') ||
+    msg.includes('P2002') ||
+    msg.includes('23505') ||
+    msg.includes('duplicate key') ||
+    msg.includes('already exists')
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -28,7 +46,7 @@ export async function POST(request: NextRequest) {
       const authResult = await enforceSuperAdmin(request);
       if (!authResult.success) return authResult.response;
 
-      // BUG-1 FIX: Validate all custom role fields with Zod
+      // Validate all custom role fields with Zod
       const customValidation = customRoleSchema.safeParse({ name, phone, unitId, unitIds, customRoleId });
       if (!customValidation.success) {
         const firstError = customValidation.error.issues[0]?.message || 'Data tidak valid';
@@ -37,12 +55,14 @@ export async function POST(request: NextRequest) {
       const validatedCustom = customValidation.data;
 
       // Verify custom role exists
-      const { data: customRole } = await db
+      const { data: customRole, error: roleError } = await db
         .from('custom_roles')
         .select('*')
         .eq('id', customRoleId)
         .single();
-      if (!customRole) {
+
+      if (roleError || !customRole) {
+        console.error('[Register] Custom role lookup error:', roleError);
         return NextResponse.json({ error: 'Role kustom tidak ditemukan' }, { status: 400 });
       }
 
@@ -59,7 +79,7 @@ export async function POST(request: NextRequest) {
         : (validatedCustom.unitId ? [validatedCustom.unitId] : []);
       const primaryUnitId = selectedUnitIds.length > 0 ? selectedUnitIds[0] : null;
 
-      // users table uses snake_case columns — id has no DB default, must generate explicitly
+      // Insert user
       const { data: user, error: insertError } = await db
         .from('users')
         .insert({
@@ -80,19 +100,23 @@ export async function POST(request: NextRequest) {
 
       if (insertError) {
         console.error('[Register] Non-ERP insert error:', insertError);
-        throw insertError;
+        const errMsg = insertError.message || String(insertError);
+        if (isUniqueConstraintError(insertError)) {
+          return NextResponse.json({ error: 'Email sudah terdaftar' }, { status: 400 });
+        }
+        return NextResponse.json({ error: `Gagal membuat karyawan: ${errMsg}` }, { status: 500 });
       }
 
       const userCamel = toCamelCase(user);
 
-      // user_units table uses snake_case columns
+      // Insert user_units
       if (selectedUnitIds.length > 0 && userCamel.id) {
         try {
           await db.from('user_units').insert(
             selectedUnitIds.map((uid: string) => ({ id: generateId(), user_id: userCamel.id, unit_id: uid }))
           );
         } catch (uuErr: any) {
-          console.warn('[Register] user_units insert failed:', uuErr.message);
+          console.warn('[Register] user_units insert failed:', uuErr.message || uuErr);
         }
       }
 
@@ -104,7 +128,7 @@ export async function POST(request: NextRequest) {
           .select('*')
           .eq('user_id', userCamel.id);
         if (uuData) userUnits = rowsToCamelCase(uuData);
-      } catch (err) { console.warn('[Register] user_units fetch failed:', err); }
+      } catch (err: any) { console.warn('[Register] user_units fetch failed:', err.message || err); }
 
       createLog(db, {
         type: 'activity',
@@ -120,7 +144,6 @@ export async function POST(request: NextRequest) {
     }
 
     // ============ ERP USER (standard registration) ============
-    // Zod validates: name (required), email (format), password (min 6), role (enum), unitId, unitIds, customRoleId
     const erpValidation = validateBody(authSchemas.register, body);
     if (!erpValidation.success) {
       return NextResponse.json({ error: erpValidation.error }, { status: 400 });
@@ -145,120 +168,115 @@ export async function POST(request: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(validatedPassword, 12);
 
-    try {
-      // Check super_admin existence
-      if (validatedRole === 'super_admin') {
-        const { count: existingSuperAdmin } = await db
-          .from('users')
-          .select('*', { count: 'exact', head: true })
-          .eq('role', 'super_admin');
-        if (existingSuperAdmin && existingSuperAdmin > 0) {
-          return NextResponse.json(
-            { error: 'Super Admin sudah terdaftar. Hubungi administrator.' },
-            { status: 400 }
-          );
-        }
-      }
-
-      // Determine status
-      let status: string;
-      if (validatedRole === 'super_admin') {
-        status = 'approved';
-      } else {
-        const { count: superAdminCount } = await db
-          .from('users')
-          .select('*', { count: 'exact', head: true })
-          .eq('role', 'super_admin')
-          .eq('status', 'approved');
-        status = superAdminCount && superAdminCount > 0 ? 'pending' : 'approved';
-      }
-
-      // Set primary unit_id to first selected unit (backward compat)
-      const primaryUnitId = selectedUnitIds.length > 0 ? selectedUnitIds[0] : null;
-
-      // users table uses snake_case columns — id has no DB default, must generate explicitly
-      const { data: user, error: insertError } = await db
+    // Check super_admin existence
+    if (validatedRole === 'super_admin') {
+      const { count: existingSuperAdmin } = await db
         .from('users')
-        .insert({
-          id: generateId(),
-          email,
-          password: hashedPassword,
-          name: validatedName,
-          phone: validatedPhone || null,
-          role: validatedRole,
-          unit_id: primaryUnitId,
-          status,
-          last_seen_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .select('*')
-        .single();
-
-      if (insertError) {
-        if (insertError.code === '23505') {
-          return NextResponse.json(
-            { error: 'Email sudah terdaftar' },
-            { status: 400 }
-          );
-        }
-        throw insertError;
+        .select('*', { count: 'exact', head: true })
+        .eq('role', 'super_admin');
+      if (existingSuperAdmin && existingSuperAdmin > 0) {
+        return NextResponse.json(
+          { error: 'Super Admin sudah terdaftar. Hubungi administrator.' },
+          { status: 400 }
+        );
       }
-
-      const userCamel = toCamelCase(user);
-
-      // Insert into user_units junction table (snake_case columns)
-      if (selectedUnitIds.length > 0 && userCamel.id) {
-        const userUnitRows = selectedUnitIds.map((unitId: string) => ({
-          id: generateId(),
-          user_id: userCamel.id,
-          unit_id: unitId,
-        }));
-
-        try {
-          await db.from('user_units').insert(userUnitRows);
-        } catch (uuErr: any) {
-          console.warn('[Register] user_units insert failed:', uuErr.message);
-        }
-      }
-
-      // Fetch user with their assigned units
-      let userUnits: any[] = [];
-      try {
-        const { data: uuData } = await db
-          .from('user_units')
-          .select('*')
-          .eq('user_id', userCamel.id);
-        if (uuData) {
-          userUnits = rowsToCamelCase(uuData);
-        }
-      } catch (err) {
-        console.warn('[Register] user_units fetch failed:', err);
-      }
-
-      // Create log
-      createLog(db, {
-        type: 'activity',
-        userId: userCamel.id,
-        action: 'register',
-        message: `New user registered: ${validatedName} (${validatedRole}) — units: ${selectedUnitIds.join(', ') || 'none'}`
-      });
-
-      const { password: _, ...userWithoutPassword } = userCamel!;
-
-      return NextResponse.json({
-        user: {
-          ...userWithoutPassword,
-          userUnits,
-        }
-      });
-    } catch (error: any) {
-      if (error?.status === 400) return error;
-      throw error;
     }
-  } catch (error) {
+
+    // Determine status
+    let status: string;
+    if (validatedRole === 'super_admin') {
+      status = 'approved';
+    } else {
+      const { count: superAdminCount } = await db
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('role', 'super_admin')
+        .eq('status', 'approved');
+      status = superAdminCount && superAdminCount > 0 ? 'pending' : 'approved';
+    }
+
+    // Set primary unit_id to first selected unit (backward compat)
+    const primaryUnitId = selectedUnitIds.length > 0 ? selectedUnitIds[0] : null;
+
+    // Insert user
+    const { data: user, error: insertError } = await db
+      .from('users')
+      .insert({
+        id: generateId(),
+        email,
+        password: hashedPassword,
+        name: validatedName,
+        phone: validatedPhone || null,
+        role: validatedRole,
+        unit_id: primaryUnitId,
+        status,
+        last_seen_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('*')
+      .single();
+
+    if (insertError) {
+      console.error('[Register] User insert error:', insertError);
+      const errMsg = insertError.message || String(insertError);
+      if (isUniqueConstraintError(insertError)) {
+        return NextResponse.json({ error: 'Email sudah terdaftar' }, { status: 400 });
+      }
+      return NextResponse.json({ error: `Gagal mendaftar: ${errMsg}` }, { status: 500 });
+    }
+
+    const userCamel = toCamelCase(user);
+
+    // Insert into user_units junction table
+    if (selectedUnitIds.length > 0 && userCamel.id) {
+      const userUnitRows = selectedUnitIds.map((unitId: string) => ({
+        id: generateId(),
+        user_id: userCamel.id,
+        unit_id: unitId,
+      }));
+
+      try {
+        await db.from('user_units').insert(userUnitRows);
+      } catch (uuErr: any) {
+        console.warn('[Register] user_units insert failed:', uuErr.message || uuErr);
+      }
+    }
+
+    // Fetch user with their assigned units
+    let userUnits: any[] = [];
+    try {
+      const { data: uuData } = await db
+        .from('user_units')
+        .select('*')
+        .eq('user_id', userCamel.id);
+      if (uuData) {
+        userUnits = rowsToCamelCase(uuData);
+      }
+    } catch (err: any) {
+      console.warn('[Register] user_units fetch failed:', err.message || err);
+    }
+
+    // Create log
+    createLog(db, {
+      type: 'activity',
+      userId: userCamel.id,
+      action: 'register',
+      message: `New user registered: ${validatedName} (${validatedRole}) — units: ${selectedUnitIds.join(', ') || 'none'}`
+    });
+
+    const { password: _, ...userWithoutPassword } = userCamel!;
+
+    return NextResponse.json({
+      user: {
+        ...userWithoutPassword,
+        userUnits,
+      }
+    });
+  } catch (error: any) {
     console.error('Register error:', error);
+    const errMsg = error?.message || String(error);
     return NextResponse.json(
-      { error: 'Terjadi kesalahan server' },
+      { error: `Terjadi kesalahan server: ${errMsg}` },
       { status: 500 }
     );
   }
