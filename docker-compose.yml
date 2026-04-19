@@ -1,0 +1,58 @@
+# =====================================================================
+# Razkindo2 ERP - Docker Compose for CasaOS
+# =====================================================================
+# Usage:
+#   1. Copy .env from template (install script does this automatically)
+#   2. Fill in all credentials in .env
+#   3. Run: docker compose up -d
+#
+# CasaOS Install:
+#   bash install-casaos.sh
+#   (or manually place in /DATA/AppData/razkindo2-erp/)
+# =====================================================================
+
+services:
+  razkindo-erp:
+    build: .
+    image: razkindo2-erp:latest
+    container_name: razkindo2-erp
+    restart: unless-stopped
+    ports:
+      - "8180:3000"   # Single port: Proxy routes HTTP→Next.js + WebSocket→Event Queue
+      # Port 8181 no longer needed — WebSocket now shares port 8180 via proxy
+    env_file:
+      - .env
+    environment:
+      # Override defaults for container runtime
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=768
+      # Override Ollama host to access host machine (MacBook)
+      # Inside Docker, localhost = container, host.docker.internal = MacBook
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      # CORS origins for WebSocket — allow Cloudflare tunnel domain
+      # For quick tunnel: CORS_ORIGINS=*
+      # For named tunnel: CORS_ORIGINS=https://razkindo.biz.id
+      - CORS_ORIGINS=https://razkindo.biz.id
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Persist local database file (if using SQLite fallback)
+      - razkindo_data:/app/db
+    labels:
+      # CasaOS App Store metadata
+      - "casaos.app.name=Razkindo2 ERP"
+      - "casaos.app.icon=mdi:office-building"
+      - "casaos.app.description=Sistem ERP Razkindo - Penjualan, Keuangan, dan Manajemen (Cloudflare Tunnel Ready)"
+      - "casaos.app.port=8180"
+    networks:
+      - razkindo_net
+
+volumes:
+  razkindo_data:
+    driver: local
+
+networks:
+  razkindo_net:
+    driver: bridge

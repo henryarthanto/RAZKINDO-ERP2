@@ -1,0 +1,38 @@
+# =====================================================================
+# Cloudflare Tunnel Configuration for Razkindo2 ERP
+# Domain: razkindo.biz.id
+# =====================================================================
+#
+# SETUP (Named Tunnel via Cloudflare Dashboard):
+#   1. Install cloudflared: brew install cloudflared
+#   2. Login: cloudflared tunnel login
+#   3. Create tunnel in Cloudflare dashboard (Zero Trust → Networks → Tunnels)
+#   4. Add public hostname: razkindo.biz.id → http://localhost:8180
+#   5. Copy tunnel ID below, or use dashboard connector
+#   6. Run: cloudflared tunnel run
+#
+# OR for quick testing (no domain needed):
+#   cloudflared tunnel --url http://localhost:8180
+#
+# Architecture:
+#   Cloudflare → MacBook:8180 → Docker container
+#     └── proxy-server.cjs (port 3000)
+#           ├── /socket.io/* → event-queue (port 3004)
+#           └── /*           → Next.js      (port 3001)
+#
+# =====================================================================
+
+tunnel: <YOUR_TUNNEL_ID>
+credentials-file: /Users/mac/.cloudflared/<YOUR_TUNNEL_ID>.json
+
+# Ingress rules — all traffic goes to the single-port proxy
+ingress:
+  # All traffic (HTTP + WebSocket) → Docker proxy on port 8180
+  # The proxy-server.cjs inside Docker routes:
+  #   /socket.io/* → event-queue (port 3004)
+  #   everything   → Next.js      (port 3001)
+  - hostname: razkindo.biz.id
+    service: http://localhost:8180
+
+  # Catch-all (required by cloudflared)
+  - service: http_status:404
